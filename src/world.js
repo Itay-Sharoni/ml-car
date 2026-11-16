@@ -182,10 +182,6 @@ export class World {
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     this.scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false })));
 
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(3000, 64).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: GRASS, roughness: 1 }));
-    ground.position.y = -0.3;
-    ground.receiveShadow = true;
-    this.scene.add(ground);
 
     // distant mountains
     const rnd = mulberry32(42), mm = new THREE.MeshStandardMaterial({ color: 0x6d86a8, roughness: 1, flatShading: true });
@@ -290,6 +286,10 @@ export class World {
     tg.setAttribute('color', new THREE.BufferAttribute(tc, 3));
     tg.computeVertexNormals();
     mesh(tg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
+    // flat ground out to the horizon: a ring that starts where the hills have flattened out,
+    // so it can never cover valleys that dip below zero
+    const far = mesh(new THREE.RingGeometry(T.R + 200, 3200, 72).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: GRASS, roughness: 1 }));
+    far.position.y = -0.3;
 
     // grass banks that tuck the road into the terrain, gravel verge, asphalt
     const bank = new THREE.MeshStandardMaterial({ color: GRASS, roughness: 1 });
