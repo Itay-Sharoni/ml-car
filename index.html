@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ML Car — watch cars learn to drive</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <canvas id="scene"></canvas>
+  <canvas id="confetti"></canvas>
+
+  <!-- left: every tunable -->
+  <aside class="panel left" id="left">
+    <header class="brand">
+      <div class="logo">ML<span>·</span>CAR</div>
+      <p>Cars with tiny neural-network brains learn to drive by evolution. Tune anything, any time.</p>
+    </header>
+    <div id="controls"></div>
+  </aside>
+
+  <!-- top: lap status -->
+  <div class="lapbar">
+    <div class="lapbar-title" id="lapTitle">LAP 0 / 3</div>
+    <div class="pips" id="pips"></div>
+    <div class="lapbar-sub" id="lapSub">Leader progress</div>
+  </div>
+
+  <!-- right: live telemetry -->
+  <aside class="panel right" id="right">
+    <div class="stats">
+      <div class="stat"><b id="sGen">1</b><span>Generation</span></div>
+      <div class="stat"><b id="sAlive">0</b><span>Cars alive</span></div>
+      <div class="stat"><b id="sSpeed">0</b><span>Leader km/h</span></div>
+      <div class="stat"><b id="sTime">0s</b><span>Gen time</span></div>
+      <div class="stat"><b id="sBestTime">—</b><span>Best 3-lap time</span></div>
+      <div class="stat"><b id="sBestFit">0</b><span>Best distance score</span></div>
+    </div>
+
+    <section class="card">
+      <h3>Leader's brain <small>live</small></h3>
+      <canvas id="net" class="viz" style="height:230px"></canvas>
+      <p class="hint">Left: what the car senses. Right: what it decides. <i class="dot pos"></i> positive signal <i class="dot neg"></i> negative signal</p>
+    </section>
+
+    <section class="card">
+      <h3>Learning curve <small>score per generation</small></h3>
+      <canvas id="chart" class="viz" style="height:130px"></canvas>
+      <p class="hint"><i class="dot pos"></i> best car <i class="dot neg"></i> population average <i class="dot fin"></i> finished all laps</p>
+    </section>
+
+    <section class="card">
+      <h3>Track map</h3>
+      <canvas id="map" class="viz" style="height:170px"></canvas>
+    </section>
+  </aside>
+
+  <!-- bottom: transport -->
+  <div class="transport">
+    <button id="bPlay" class="primary" title="Space">Pause</button>
+    <label class="speed">Speed <input id="speed" type="range" min="1" max="40" step="1" value="2" /><b id="speedV">2×</b></label>
+    <button id="bSkip" title="End this generation now and breed the next">Next gen</button>
+    <button id="bTrack" title="Generate a brand-new random road">New track</button>
+    <button id="bReset" title="Forget everything and start from random brains">Reset brains</button>
+    <span class="sep"></span>
+    <div class="seg" id="cams">
+      <button data-cam="chase" class="on">Chase</button>
+      <button data-cam="hood">Hood</button>
+      <button data-cam="orbit">Orbit</button>
+      <button data-cam="top">Top</button>
+    </div>
+    <span class="sep"></span>
+    <button id="bDrive" title="Take the wheel: arrow keys or WASD">Drive it yourself</button>
+    <button id="bHelp">How it works</button>
+  </div>
+
+  <div id="toasts"></div>
+
+  <!-- welcome / how it works -->
+  <div class="modal" id="help">
+    <div class="modal-box">
+      <h1>Watch cars teach themselves to drive</h1>
+      <p class="lead">Nobody programs the driving. Each car has a small neural network for a brain, and evolution finds the weights. The goal: finish <b>3 laps</b> without leaving the road.</p>
+      <ol class="steps">
+        <li><b>Sense</b><span>Each car shoots distance rays at the road edges. Those distances, plus its speed, are the only things it knows.</span></li>
+        <li><b>Think</b><span>The numbers flow through the neural network and come out as two decisions: steering and gas/brake.</span></li>
+        <li><b>Try</b><span>A whole population drives at once, each with a slightly different brain. Generation 1 is pure random chaos.</span></li>
+        <li><b>Score</b><span>The farther a car gets (and the faster it finishes), the higher its fitness score.</span></li>
+        <li><b>Evolve</b><span>The best brains survive, get mixed together and randomly mutated to make the next generation. Repeat.</span></li>
+      </ol>
+      <h2>Experiments to try</h2>
+      <ul class="tries">
+        <li>Set <b>Hidden layers</b> to 0. Can a brain with no hidden neurons still drive?</li>
+        <li>Give the cars only <b>3 sensors</b>, or a narrow field of view.</li>
+        <li>Crank <b>Mutation strength</b> to the max and watch learning fall apart. Then set it near zero.</li>
+        <li>Turn <b>Grip</b> way down (ice) or <b>Top speed</b> way up, and see if they learn to brake.</li>
+        <li>Set <b>New road every</b> to 1 so they can't memorise a track, then hit <b>Drive it yourself</b> and race them.</li>
+      </ul>
+      <button class="primary big" id="bStart">Start training</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
