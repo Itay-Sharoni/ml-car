@@ -295,9 +295,14 @@ export class World {
     const bank = new THREE.MeshStandardMaterial({ color: GRASS, roughness: 1 });
     mesh(strip(hw + 2.2, -0.02, hw + 6, -3.2), bank);
     mesh(strip(-hw - 6, -3.2, -hw - 2.2, -0.02), bank);
-    mesh(strip(-hw - 2.2, -0.02, hw + 2.2, -0.02), new THREE.MeshStandardMaterial({ color: 0x8a7d5a, roughness: 1 }));
+    // nothing overlaps anything else at road level, so there is no flicker from far away
+    const gravel = new THREE.MeshStandardMaterial({ color: 0x8a7d5a, roughness: 1 });
+    mesh(strip(hw + 0.9, 0, hw + 2.2, -0.02), gravel);
+    mesh(strip(-hw - 2.2, -0.02, -hw - 0.9, 0), gravel);
     mesh(strip(-hw, 0, hw, 0), new THREE.MeshStandardMaterial({ color: 0x2c2f36, roughness: 0.85 }));
-    const white = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.6 });
+    // painted markings lie on the asphalt: polygonOffset keeps them on top at any distance
+    const onTop = { polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 };
+    const white = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.6, ...onTop });
     mesh(strip(hw - 0.55, 0.03, hw - 0.3, 0.03), white);
     mesh(strip(-hw + 0.3, 0.03, -hw + 0.55, 0.03), white);
     mesh(strip(-0.12, 0.03, 0.12, 0.03, (i) => (i >> 1) % 2 === 0), white);
@@ -309,8 +314,9 @@ export class World {
 
     // chequered start line
     const blk = new THREE.Color(0x111111), cells = 8, cw = (hw * 2) / cells;
+    const chk = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, ...onTop, polygonOffsetFactor: -6 });
     for (let c = 0; c < cells; c++)
-      mesh(strip(-hw + c * cw, 0.04, -hw + (c + 1) * cw, 0.04, (i) => i < 2, (i) => ((i + c) % 2 ? blk : wht)), curb);
+      mesh(strip(-hw + c * cw, 0.04, -hw + (c + 1) * cw, 0.04, (i) => i < 2, (i) => ((i + c) % 2 ? blk : wht)), chk);
 
     // start gantry
     const gantry = new THREE.Group();
@@ -352,6 +358,9 @@ export class World {
   setMode(mode) {
     this.mode = mode;
     this.controls.enabled = mode === 'orbit';
+    // far-away cameras need a deeper near plane for a precise depth buffer
+    this.camera.near = mode === 'orbit' || mode === 'top' ? 3 : 0.5;
+    this.camera.updateProjectionMatrix();
     if (mode === 'orbit') {
       const d = this.track.R * 1.25;
       this.camera.position.set(d, d * 0.75, d);

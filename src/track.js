@@ -126,7 +126,10 @@ export function buildTrack({ seed = 1, points = 12, twist = 0.35, width = 13, ra
   let k = hills / peak, maxS = 0;
   for (let i = 0; i < N; i++) maxS = Math.max(maxS, Math.abs(cy[(i + 1) % N] - cy[(i + N - 1) % N]) * k / (2 * S.step));
   if (maxS > 0.11) k *= 0.11 / maxS; // keep gradients road-legal (11%)
-  for (let i = 0; i < N; i++) cy[i] *= k;
+  // scale, then lift the whole lap so its lowest point sits just above the surrounding plain
+  let low = Infinity;
+  for (let i = 0; i < N; i++) { cy[i] *= k; low = Math.min(low, cy[i]); }
+  for (let i = 0; i < N; i++) cy[i] += 2 - low;
   for (let i = 0; i < N; i++) {
     const a = (i + N - 1) % N, b = (i + 1) % N;
     slope[i] = (cy[b] - cy[a]) / (2 * S.step);            // dy/ds: positive = uphill
