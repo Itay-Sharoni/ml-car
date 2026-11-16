@@ -13,47 +13,72 @@ export const SCHEMA = [
       { key: 'mutationStrength', label: 'Mutation strength', min: 0.02, max: 1.5, step: 0.01, kind: 'next', hint: 'How big each nudge is. Big = wild exploration. Small = careful fine-tuning.' },
       { key: 'crossover', label: 'Crossover (two parents)', type: 'toggle', kind: 'next', hint: 'Children mix the weights of two parents instead of cloning one.' },
       { key: 'lapsTarget', label: 'Laps to finish', min: 1, max: 10, step: 1, kind: 'live', hint: 'How many laps count as finishing the race.' },
-      { key: 'timeLimit', label: 'Time limit', unit: 's', min: 30, max: 400, step: 10, kind: 'live', hint: 'A generation ends when every car has crashed or finished, or after this long.' },
+      { key: 'timeLimit', label: 'Time limit', unit: 's', min: 30, max: 600, step: 10, kind: 'live', hint: 'A generation ends when every car has crashed or finished, or after this long.' },
     ],
   },
   {
     title: 'Brain & senses', hint: 'What the car can perceive and how big its neural network is.',
     items: [
-      { key: 'sensors', label: 'Sensors', min: 3, max: 15, step: 1, kind: 'reset', hint: 'Number of distance rays. Each one is an input neuron.' },
-      { key: 'sensorRange', label: 'Sensor range', unit: 'm', min: 15, max: 150, step: 5, kind: 'live', hint: 'How far ahead the car can see. Short range = short-sighted driver.' },
+      { key: 'sensors', label: 'Sensors', min: 3, max: 15, step: 1, kind: 'reset', hint: 'Number of distance rays. Each one is an input neuron (plus speed, slide and spin).' },
+      { key: 'sensorRange', label: 'Sensor range', unit: 'm', min: 20, max: 250, step: 5, kind: 'live', hint: 'How far ahead the car can see. A fast car needs to see far to brake in time.' },
       { key: 'sensorFov', label: 'Field of view', unit: '°', min: 40, max: 300, step: 10, kind: 'live', hint: 'How wide the rays fan out around the nose.' },
+      { key: 'sensorFocus', label: 'Forward focus', min: 1, max: 3, step: 0.1, kind: 'live', hint: '1 spreads rays evenly. Higher packs more of them toward straight ahead.' },
       { key: 'hiddenLayers', label: 'Hidden layers', min: 0, max: 3, step: 1, kind: 'reset', hint: 'Layers between senses and controls. 0 = senses wired straight to the wheel.' },
       { key: 'hiddenSize', label: 'Neurons per layer', min: 2, max: 20, step: 1, kind: 'reset', hint: 'More neurons can learn subtler behaviour, but there is more to search.' },
       { type: 'buttons', buttons: [{ action: 'save', label: 'Save champion' }, { action: 'load', label: 'Load champion' }] },
     ],
   },
   {
-    title: 'Car physics', hint: 'Change the car live. The brains have to cope (or re-learn).',
+    title: 'Sports car', hint: 'A real vehicle model: tyre slip, weight transfer, aero and a power-limited engine. Change it live and the brains have to cope.',
     items: [
-      { key: 'maxSpeed', label: 'Top speed', unit: ' m/s', min: 15, max: 90, step: 1, kind: 'live', hint: 'Faster cars finish sooner but must learn to brake for corners.' },
-      { key: 'accel', label: 'Acceleration', min: 5, max: 45, step: 1, kind: 'live', hint: 'Engine power.' },
-      { key: 'brake', label: 'Brakes', min: 8, max: 70, step: 1, kind: 'live', hint: 'Stopping power.' },
-      { key: 'grip', label: 'Tyre grip', min: 6, max: 50, step: 1, kind: 'live', hint: 'How hard the car can turn at speed. Low grip = ice: it understeers wide.' },
-      { key: 'steerLock', label: 'Steering lock', min: 0.2, max: 0.9, step: 0.05, kind: 'live', hint: 'Maximum angle of the front wheels (radians).' },
+      { key: 'power', label: 'Engine power', unit: ' hp', min: 80, max: 1200, step: 10, kind: 'live', hint: 'More power = faster on the straights, and easier to spin the rear wheels.' },
+      { key: 'mass', label: 'Weight', unit: ' kg', min: 600, max: 2600, step: 50, kind: 'live', hint: 'Heavier cars accelerate, brake and change direction more slowly.' },
+      { key: 'grip', label: 'Tyre grip', min: 0.3, max: 2.2, step: 0.05, kind: 'live', hint: 'Friction coefficient. 0.4 is ice, 0.8 is rain, 1.25 is sports tyres, 1.8 is racing slicks.' },
+      { key: 'downforce', label: 'Downforce', min: 0, max: 5, step: 0.1, kind: 'live', hint: 'Wings push the car into the road at speed: more grip in fast corners.' },
+      { key: 'brake', label: 'Brake force', unit: ' g', min: 0.4, max: 3, step: 0.1, kind: 'live', hint: 'How hard the brakes can bite. The tyres still set the real limit.' },
+      { key: 'gravity', label: 'Gravity', unit: ' m/s²', min: 1, max: 25, step: 0.1, kind: 'live', hint: 'Earth is 9.8, the Moon 1.6, Jupiter 24.8. Less gravity = less grip, and hills matter less.' },
+      { key: 'steerLock', label: 'Steering lock', min: 0.2, max: 0.8, step: 0.05, kind: 'live', hint: 'Maximum angle of the front wheels (radians).' },
+      { key: 'drive', label: 'Driven wheels', type: 'select', options: ['RWD', 'AWD', 'FWD'], kind: 'live', hint: 'Rear-wheel drive oversteers on power, front-wheel drive understeers, all-wheel drive has the most traction.' },
+      { key: 'aids', label: 'ABS + traction control', type: 'toggle', kind: 'live', hint: 'Stops the wheels locking under braking or spinning under power.' },
+      { key: 'steerAssist', label: 'Speed-sensitive steering', type: 'toggle', kind: 'live', hint: 'The same steering input turns the wheels less at high speed, like a real car.' },
     ],
   },
   {
     title: 'Road', hint: 'Roads are generated procedurally. Every seed is a different circuit.',
     items: [
       { key: 'trackEvery', label: 'New road every', unit: ' gens', min: 0, max: 20, step: 1, kind: 'live', zero: 'off', hint: 'Auto-generate a new road every N generations. Forces real driving skill instead of memorising one track.' },
+      { key: 'trackSize', label: 'Circuit size', unit: 'm', min: 90, max: 400, step: 10, kind: 'track', hint: 'Bigger circuits have longer straights and higher speeds.' },
+      { key: 'trackHills', label: 'Hills', unit: 'm', min: 0, max: 25, step: 1, kind: 'track', hint: 'Height of the climbs and drops. Gravity slows the car uphill and lightens it over crests.' },
       { key: 'trackWidth', label: 'Road width', unit: 'm', min: 7, max: 24, step: 1, kind: 'track', hint: 'Narrow roads are much harder.' },
       { key: 'trackTwist', label: 'Twistiness', min: 0, max: 0.7, step: 0.05, kind: 'track', hint: '0 is nearly a circle. Higher gives hairpins and esses.' },
       { key: 'trackPoints', label: 'Corners', min: 6, max: 28, step: 1, kind: 'track', hint: 'Number of control points the road is bent through.' },
     ],
   },
   {
-    title: 'View', hint: '',
+    title: 'View & sound', hint: '',
     items: [
       { key: 'showSensors', obj: 'view', label: 'Show sensor rays', type: 'toggle', kind: 'live', hint: 'Green = far from the edge, red = close.' },
       { key: 'hideDead', obj: 'view', label: 'Hide crashed cars', type: 'toggle', kind: 'live', hint: 'Wrecks show where the population struggles.' },
+      { key: 'sound', obj: 'view', label: 'Engine sound', type: 'toggle', kind: 'live', hint: 'Hear the leader rev through the gears.' },
+      { type: 'buttons', buttons: [{ action: 'defaults', label: 'Restore all default settings' }] },
     ],
   },
 ];
+
+// Cosmetic gearbox for the dashboard and engine note: which gear and rpm for a given speed.
+const GEAR_TOP = [70, 110, 155, 200, 250, 340]; // km/h at the rev limit in each gear
+export function gearInfo(v) {
+  const kmh = v * 3.6;
+  let g = 0;
+  while (g < GEAR_TOP.length - 1 && kmh > GEAR_TOP[g] * 0.92) g++;
+  return { kmh, gear: g + 1, rpm: Math.max(900, Math.min(7800, (7500 * kmh) / GEAR_TOP[g])) };
+}
+
+export function fmtTime(t) {
+  if (!isFinite(t)) return '—';
+  const m = Math.floor(t / 60);
+  return m + ':' + (t - m * 60).toFixed(1).padStart(4, '0');
+}
 
 const TAGS = { reset: 'restarts learning', track: 'rebuilds road' };
 const $ = (id) => document.getElementById(id);
@@ -96,7 +121,19 @@ export class UI {
         }
         const obj = it.obj === 'view' ? this.view : this.cfg;
         const tag = TAGS[it.kind] ? `<span class="tag">${TAGS[it.kind]}</span>` : '';
-        if (it.type === 'toggle') {
+        if (it.type === 'select') {
+          el.innerHTML = `<div class="ctl-row"><label>${it.label}</label></div><div class="seg wide"></div><small>${it.hint}</small>`;
+          const box = el.querySelector('.seg');
+          const sync = () => [...box.children].forEach((b) => b.classList.toggle('on', b.textContent === obj[it.key]));
+          for (const opt of it.options) {
+            const b = document.createElement('button');
+            b.textContent = opt;
+            b.onclick = () => { obj[it.key] = opt; sync(); this.onChange(it); };
+            box.appendChild(b);
+          }
+          sync();
+          this.inputs.push(sync);
+        } else if (it.type === 'toggle') {
           el.innerHTML = `<label class="toggle"><input type="checkbox">${it.label}</label><small>${it.hint}</small>`;
           const inp = el.querySelector('input');
           inp.checked = obj[it.key];
@@ -121,13 +158,14 @@ export class UI {
   refresh() { for (const f of this.inputs) f(); }
 
   // ---- telemetry ---------------------------------------------------------
-  hud(sim, focus, driving) {
-    const cfg = sim.cfg, N = sim.track.n, car = driving ? sim.human : focus;
+  // car = the car being watched (leader, champion, or you)
+  hud(sim, car, mode) {
+    const cfg = sim.cfg, N = sim.track.n, last = sim.history[sim.history.length - 1];
     $('sGen').textContent = sim.gen;
-    $('sAlive').textContent = `${sim.alive}/${sim.cars.length}`;
-    $('sSpeed').textContent = car ? Math.round(car.v * 3.6) : 0;
-    $('sTime').textContent = sim.time.toFixed(0) + 's';
-    $('sBestTime').textContent = isFinite(sim.records.bestTime) ? sim.records.bestTime.toFixed(1) + 's' : '—';
+    $('sAlive').textContent = mode === 'solo' ? '1' : `${sim.alive}/${sim.cars.length}`;
+    $('sFin').textContent = last ? `${last.finished}/${cfg.population}` : '—';
+    $('sTime').textContent = fmtTime(mode === 'solo' ? sim.solo.car.time : sim.time);
+    $('sBestTime').textContent = fmtTime(sim.records.bestTime);
     $('sBestTime').nextElementSibling.textContent = `Best ${cfg.lapsTarget}-lap time`;
     $('sBestFit').textContent = Math.round(sim.records.bestFitness);
 
@@ -139,8 +177,63 @@ export class UI {
     const p = car ? Math.max(0, car.prog / N) : 0;
     const done = Math.min(laps, Math.floor(p));
     $('lapTitle').textContent = car && car.finished ? 'FINISHED' : `LAP ${Math.min(laps, done + 1)} / ${laps}`;
-    $('lapSub').textContent = driving ? 'You are driving — arrows or WASD' : car && !car.alive ? `Leader ${car.why}` : 'Leader progress';
+    $('lapSub').textContent =
+      mode === 'drive' ? 'You are driving — arrows or WASD'
+      : mode === 'solo' ? `Champion run · ${fmtTime(car.time)}`
+      : car && !car.alive ? `Leader ${car.why}` : `Leader · ${fmtTime(car ? car.time : 0)}`;
     [...$('pips').children].forEach((el, i) => (el.firstChild.style.width = Math.max(0, Math.min(1, p - i)) * 100 + '%'));
+  }
+
+  // Speedo, gear, revs, pedals, steering and a g-force meter for the watched car.
+  drawDash(car) {
+    const { ctx, w, h } = fit($('dash'));
+    if (!car) return;
+    const { kmh, gear, rpm } = gearInfo(car.v);
+    const acc = css('--acc'), mute = '#98a2b3', text = '#eef1f6';
+    // rev bar
+    const segs = 24, bw = (w - 16) / segs;
+    for (let i = 0; i < segs; i++) {
+      const on = i / segs < rpm / 7800;
+      ctx.fillStyle = on ? (i >= segs - 4 ? '#ff4d4d' : i >= segs - 9 ? css('--gold') : '#5fd38d') : 'rgba(255,255,255,.1)';
+      ctx.fillRect(8 + i * bw, 4, bw - 2, 7);
+    }
+    // speed + gear
+    ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    ctx.fillStyle = text; ctx.font = '800 34px ui-sans-serif, system-ui';
+    ctx.fillText(Math.round(kmh), 8, 56);
+    ctx.fillStyle = mute; ctx.font = '10px ui-sans-serif, system-ui';
+    ctx.fillText('km/h', 8, 70);
+    ctx.fillText('GEAR', 96, 32);
+    ctx.fillStyle = acc; ctx.font = '800 26px ui-sans-serif, system-ui';
+    ctx.fillText(car.v < 0.3 ? 'N' : gear, 98, 58);
+    // steering
+    const sx = 8, sw = 118, sy = 80;
+    ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fillRect(sx, sy, sw, 5);
+    ctx.fillStyle = css('--acc2');
+    const st = Math.max(-1, Math.min(1, car.steer));
+    ctx.fillRect(sx + sw / 2, sy, (-st * sw) / 2, 5);
+    ctx.fillStyle = text; ctx.fillRect(sx + sw / 2 - 0.5, sy - 2, 1, 9);
+    // pedals
+    const bar = (x, v, color, label) => {
+      ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fillRect(x, 22, 10, 56);
+      ctx.fillStyle = color; ctx.fillRect(x, 78 - 56 * v, 10, 56 * v);
+      ctx.fillStyle = mute; ctx.font = '9px ui-sans-serif, system-ui'; ctx.textAlign = 'center'; ctx.fillText(label, x + 5, 89);
+    };
+    bar(146, Math.max(0, car.thr), '#5fd38d', 'gas');
+    bar(166, Math.max(0, -car.thr), '#ff4d4d', 'brk');
+    // g-meter (shows the force you would feel: braking throws you forward)
+    const gx = w - 44, gy = 48, gr = 30, G = 9.81 * 1.8;
+    ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(gx, gy, gr, 0, 6.3); ctx.stroke();
+    ctx.beginPath(); ctx.arc(gx, gy, gr / 1.8, 0, 6.3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(gx - gr, gy); ctx.lineTo(gx + gr, gy); ctx.moveTo(gx, gy - gr); ctx.lineTo(gx, gy + gr); ctx.stroke();
+    let px = (car.ay / G) * gr, py = (car.ax / G) * gr;
+    const pm = Math.hypot(px, py);
+    if (pm > gr) { px *= gr / pm; py *= gr / pm; }
+    ctx.fillStyle = car.slip ? '#ff4d4d' : acc;
+    ctx.beginPath(); ctx.arc(gx + px, gy + py, 4.5, 0, 6.3); ctx.fill();
+    ctx.fillStyle = mute; ctx.font = '9px ui-sans-serif, system-ui'; ctx.textAlign = 'center';
+    ctx.fillText((Math.hypot(car.ax, car.ay) / 9.81).toFixed(1) + ' g', gx, 89);
   }
 
   drawNet(brain) {
@@ -174,7 +267,7 @@ export class UI {
         ctx.globalAlpha = Math.min(1, Math.abs(a)); ctx.fillStyle = a > 0 ? pos : neg; ctx.fill();
         ctx.globalAlpha = 1; ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1; ctx.stroke();
         ctx.fillStyle = '#98a2b3';
-        if (l === 0) { ctx.textAlign = 'right'; ctx.fillText(i === sizes[0] - 1 ? 'speed' : 'ray ' + (i + 1), x - r - 4, y); }
+        if (l === 0) { const e = i - (sizes[0] - 3); ctx.textAlign = 'right'; ctx.fillText(e < 0 ? 'ray ' + (i + 1) : ['speed', 'slide', 'spin'][e], x - r - 4, y); }
         if (l === L - 1) {
           ctx.textAlign = 'left';
           const txt = i === 0 ? (a > 0.08 ? 'left' : a < -0.08 ? 'right' : 'straight') : a > 0 ? 'gas' : 'brake';
@@ -210,7 +303,7 @@ export class UI {
     history.forEach((s, i) => { if (s.finished) { ctx.beginPath(); ctx.arc(X(i), Y(s.best), 2.6, 0, 6.3); ctx.fill(); } });
   }
 
-  drawMap(sim, focus) {
+  drawMap(sim, cars, focus) {
     const { ctx, w, h } = fit($('map'));
     const T = sim.track, s = Math.min(w, h) / (T.R * 2 + T.width + 8);
     const X = (x) => w / 2 + x * s, Y = (z) => h / 2 + z * s; // same orientation as the Top camera
@@ -221,7 +314,7 @@ export class UI {
     ctx.strokeStyle = '#59606d'; ctx.lineWidth = Math.max(3, T.width * s); ctx.stroke();
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(X(T.lx[0]), Y(T.lz[0])); ctx.lineTo(X(T.rx[0]), Y(T.rz[0])); ctx.stroke();
-    for (const c of sim.cars) {
+    for (const c of cars) {
       if (c === focus) continue;
       ctx.fillStyle = c.finished ? css('--gold') : c.alive ? 'rgba(255,255,255,.85)' : 'rgba(20,22,28,.55)';
       ctx.beginPath(); ctx.arc(X(c.x), Y(c.z), c.alive ? 2 : 1.5, 0, 6.3); ctx.fill();

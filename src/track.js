@@ -68,7 +68,7 @@ function sample(ang, rad, spacing) {
   return { cx, cz, N, step, total, curv, maxK, worst };
 }
 
-export function buildTrack({ seed = 1, points = 12, twist = 0.35, width = 13, radius = 110, spacing = 2 } = {}) {
+export function buildTrack({ seed = 1, points = 12, twist = 0.35, width = 13, radius = 110, hills = 0, spacing = 2 } = {}) {
   const rnd = mulberry32(seed);
   const n = Math.max(5, points | 0);
   const ang = [], rad = [];
@@ -77,7 +77,7 @@ export function buildTrack({ seed = 1, points = 12, twist = 0.35, width = 13, ra
     rad.push(radius * (1 + twist * (rnd() * 2 - 1)));
   }
   const hw = width / 2;
-  const maxK = 1 / (hw + 7); // tightest corner the road is allowed to have
+  const maxK = 1 / (hw + 12); // tightest corner the road is allowed to have
 
   // Relax corners that are too tight for the road width until the track is drivable.
   let S;
@@ -112,5 +112,25 @@ export function buildTrack({ seed = 1, points = 12, twist = 0.35, width = 13, ra
     rx[i] = cx[i] - nx[i] * hw; rz[i] = cz[i] - nz[i] * hw;
     R = Math.max(R, Math.hypot(cx[i], cz[i]));
   }
-  return { n: N, cx, cz, tx, tz, nx, nz, lx, lz, rx, rz, curv: S.curv, segLen: S.step, length: S.total, hw, width, R, seed };
+  // Elevation: a few long sine waves around the lap (periodic, so the loop closes).
+  const cy = new Float64Array(N), slope = new Float64Array(N), curvV = new Float64Array(N);
+  const waves = [1, 2, 3, 5].map((k) => ({ k, a: (0.4 + rnd() * 0.6) / k ** 0.7, p: rnd() * 6.283 }));
+  let peak = 1e-9;
+  for (let i = 0; i < N; i++) {
+    const s = (i / N) * Math.PI * 2;
+    let y = 0;
+    for (const w of waves) y += w.a * Math.sin(w.k * s + w.p);
+    cy[i] = y;
+    peak = Math.max(peak, Math.abs(y));
+  }
+  let k = hills / peak, maxS = 0;
+  for (let i = 0; i < N; i++) maxS = Math.max(maxS, Math.abs(cy[(i + 1) % N] - cy[(i + N - 1) % N]) * k / (2 * S.step));
+  if (maxS > 0.11) k *= 0.11 / maxS; // keep gradients road-legal (11%)
+  for (let i = 0; i < N; i++) cy[i] *= k;
+  for (let i = 0; i < N; i++) {
+    const a = (i + N - 1) % N, b = (i + 1) % N;
+    slope[i] = (cy[b] - cy[a]) / (2 * S.step);            // dy/ds: positive = uphill
+    curvV[i] = (cy[b] - 2 * cy[i] + cy[a]) / (S.step * S.step); // positive = dip, negative = crest
+  }
+  return { n: N, cx, cy, cz, tx, tz, nx, nz, lx, lz, rx, rz, curv: S.curv, slope, curvV, segLen: S.step, length: S.total, hw, width, R, seed };
 }

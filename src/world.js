@@ -8,6 +8,8 @@ import { sensorAngle } from './sim.js';
 
 const MAX_CARS = 320;
 const MAX_RAYS = 16;
+const MAX_SMOKE = 160;
+const GRASS = 0x6fae52;
 
 function paint(g, hex) {
   if (g.index) g = g.toNonIndexed();
@@ -148,7 +150,18 @@ export class World {
     this.hits.setColorAt(0, new THREE.Color(1, 1, 1));
     scene.add(this.rays, this.hits);
 
+    // tyre smoke (a small ring buffer of points)
+    const sg = new THREE.BufferGeometry();
+    sg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_SMOKE * 3).fill(-999), 3));
+    this.smoke = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xe8e8e8, size: 1.5, transparent: true, opacity: 0.3, depthWrite: false }));
+    this.smoke.frustumCulled = false;
+    this.smokeLife = new Float32Array(MAX_SMOKE);
+    this.smokeI = 0;
+    scene.add(this.smoke);
+
     this.dummy = new THREE.Object3D();
+    this.dummy.rotation.order = 'YXZ';
+    this.hero.rotation.order = this.humanCar.rotation.order = 'YXZ';
     this.col = new THREE.Color();
     this.camPos = new THREE.Vector3(200, 150, 200);
     this.camLook = new THREE.Vector3();
@@ -169,8 +182,8 @@ export class World {
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     this.scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false })));
 
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(3000, 64).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x6fae52, roughness: 1 }));
-    ground.position.y = -0.08;
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(3000, 64).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: GRASS, roughness: 1 }));
+    ground.position.y = -0.3;
     ground.receiveShadow = true;
     this.scene.add(ground);
 
@@ -216,6 +229,22 @@ export class World {
   }
 
   // ---- track ------------------------------------------------------------
+  // Terrain height at a point: blends the elevation of nearby road so hills flow
+  // away from the track, flattening out in the distance. Returns [height, distToRoad].
+  heightAt(x, z) {
+    const T = this.track;
+    let sw = 0, sy = 0, dmin = Infinity;
+    for (let i = 0; i < T.n; i += 2) {
+      const dx = x - T.cx[i], dz = z - T.cz[i], d2 = dx * dx + dz * dz;
+      if (d2 < dmin) dmin = d2;
+      const w = 1 / ((d2 + 9) * (d2 + 9));
+      sw += w; sy += w * T.cy[i];
+    }
+    const d = Math.sqrt(dmin), hw = T.hw;
+    const sm = (v, a, b) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+    return [(sy / sw) * (1 - sm(d, hw + 8, hw + 120)) - 1.2 * (1 - sm(d, hw + 3, hw + 16)), d];
+  }
+
   setTrack(T) {
     const G = this.trackGroup;
     G.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
@@ -223,14 +252,15 @@ export class World {
     this.track = T;
     const N = T.n, hw = T.hw;
 
-    const strip = (a, b, y, filter, colorFn) => {
+    // ribbon between two sideways offsets (a < b), each with its own height above the road
+    const strip = (a, ya, b, yb, filter, colorFn) => {
       const pos = [], col = [], idx = [];
       let v = 0;
       for (let i = 0; i < N; i++) {
         if (filter && !filter(i)) continue;
         const j = (i + 1) % N;
-        pos.push(T.cx[i] + T.nx[i] * a, y, T.cz[i] + T.nz[i] * a, T.cx[j] + T.nx[j] * a, y, T.cz[j] + T.nz[j] * a,
-          T.cx[i] + T.nx[i] * b, y, T.cz[i] + T.nz[i] * b, T.cx[j] + T.nx[j] * b, y, T.cz[j] + T.nz[j] * b);
+        pos.push(T.cx[i] + T.nx[i] * a, T.cy[i] + ya, T.cz[i] + T.nz[i] * a, T.cx[j] + T.nx[j] * a, T.cy[j] + ya, T.cz[j] + T.nz[j] * a,
+          T.cx[i] + T.nx[i] * b, T.cy[i] + yb, T.cz[i] + T.nz[i] * b, T.cx[j] + T.nx[j] * b, T.cy[j] + yb, T.cz[j] + T.nz[j] * b);
         if (colorFn) { const c = colorFn(i); for (let k = 0; k < 4; k++) col.push(c.r, c.g, c.b); }
         idx.push(v, v + 1, v + 2, v + 2, v + 1, v + 3);
         v += 4;
@@ -244,56 +274,73 @@ export class World {
     };
     const mesh = (g, m) => { const o = new THREE.Mesh(g, m); o.receiveShadow = true; G.add(o); return o; };
 
-    mesh(strip(-hw - 2.2, hw + 2.2, -0.02), new THREE.MeshStandardMaterial({ color: 0x8a7d5a, roughness: 1 })); // gravel verge
-    mesh(strip(-hw, hw, 0), new THREE.MeshStandardMaterial({ color: 0x2c2f36, roughness: 0.85 }));
+    // terrain
+    const size = 2 * (T.R + 280), segs = 220;
+    const tg = new THREE.PlaneGeometry(size, size, segs, segs).rotateX(-Math.PI / 2);
+    const tp = tg.attributes.position, tc = new Float32Array(tp.count * 3);
+    const grass = new THREE.Color(GRASS), cc = new THREE.Color();
+    for (let i = 0; i < tp.count; i++) {
+      const x = tp.getX(i), z = tp.getZ(i);
+      tp.setY(i, this.heightAt(x, z)[0]);
+      const edge = Math.max(Math.abs(x), Math.abs(z)) / (size / 2);
+      const k = 1 + 0.13 * Math.sin(x * 0.045 + 1.3 * Math.sin(z * 0.06)) * Math.cos(z * 0.05) * (edge > 0.85 ? 0 : 1 - edge / 0.85);
+      cc.copy(grass).multiplyScalar(k);
+      tc.set([cc.r, cc.g, cc.b], i * 3);
+    }
+    tg.setAttribute('color', new THREE.BufferAttribute(tc, 3));
+    tg.computeVertexNormals();
+    mesh(tg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
+
+    // grass banks that tuck the road into the terrain, gravel verge, asphalt
+    const bank = new THREE.MeshStandardMaterial({ color: GRASS, roughness: 1 });
+    mesh(strip(hw + 2.2, -0.02, hw + 6, -3.2), bank);
+    mesh(strip(-hw - 6, -3.2, -hw - 2.2, -0.02), bank);
+    mesh(strip(-hw - 2.2, -0.02, hw + 2.2, -0.02), new THREE.MeshStandardMaterial({ color: 0x8a7d5a, roughness: 1 }));
+    mesh(strip(-hw, 0, hw, 0), new THREE.MeshStandardMaterial({ color: 0x2c2f36, roughness: 0.85 }));
     const white = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.6 });
-    mesh(strip(hw - 0.55, hw - 0.3, 0.03), white);
-    mesh(strip(-hw + 0.3, -hw + 0.55, 0.03), white);
-    mesh(strip(-0.12, 0.12, 0.03, (i) => (i >> 1) % 2 === 0), white);
+    mesh(strip(hw - 0.55, 0.03, hw - 0.3, 0.03), white);
+    mesh(strip(-hw + 0.3, 0.03, -hw + 0.55, 0.03), white);
+    mesh(strip(-0.12, 0.03, 0.12, 0.03, (i) => (i >> 1) % 2 === 0), white);
     const red = new THREE.Color(0xe23b2e), wht = new THREE.Color(0xf5f5f5);
     const curb = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 });
     const cf = (i) => ((i >> 1) % 2 ? red : wht);
-    mesh(strip(hw, hw + 0.9, 0.05, null, cf), curb);
-    mesh(strip(-hw - 0.9, -hw, 0.05, null, cf), curb);
+    mesh(strip(hw, 0.05, hw + 0.9, 0.05, null, cf), curb);
+    mesh(strip(-hw - 0.9, 0.05, -hw, 0.05, null, cf), curb);
 
     // chequered start line
     const blk = new THREE.Color(0x111111), cells = 8, cw = (hw * 2) / cells;
     for (let c = 0; c < cells; c++)
-      mesh(strip(-hw + c * cw, -hw + (c + 1) * cw, 0.04, (i) => i < 2, (i) => ((i + c) % 2 ? blk : wht)), curb);
+      mesh(strip(-hw + c * cw, 0.04, -hw + (c + 1) * cw, 0.04, (i) => i < 2, (i) => ((i + c) % 2 ? blk : wht)), curb);
 
     // start gantry
     const gantry = new THREE.Group();
     const dark = new THREE.MeshStandardMaterial({ color: 0x23262c, roughness: 0.5, metalness: 0.6 });
     for (const s of [-1, 1]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 8, 0.5), dark);
-      post.position.set(s * (hw + 1.6), 4, 0); post.castShadow = true; gantry.add(post);
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 10, 0.5), dark);
+      post.position.set(s * (hw + 1.6), 3, 0); post.castShadow = true; gantry.add(post);
     }
     const beam = new THREE.Mesh(new THREE.BoxGeometry(hw * 2 + 4, 1.3, 0.6), new THREE.MeshStandardMaterial({ color: 0xff5a2c, roughness: 0.4 }));
     beam.position.y = 7.6; beam.castShadow = true; gantry.add(beam);
-    gantry.position.set(T.cx[0], 0, T.cz[0]);
+    gantry.position.set(T.cx[0], T.cy[0], T.cz[0]);
     gantry.rotation.y = Math.atan2(T.tx[0], T.tz[0]);
     G.add(gantry);
 
     // trees
     const tree = mergeGeometries([
-      paint(new THREE.CylinderGeometry(0.25, 0.38, 1.8, 6).translate(0, 0.9, 0), 0x6b4a2e),
+      paint(new THREE.CylinderGeometry(0.25, 0.38, 2.4, 6).translate(0, 0.6, 0), 0x6b4a2e),
       paint(new THREE.ConeGeometry(1.9, 4.2, 7).translate(0, 3.6, 0), 0x2f7d3a),
       paint(new THREE.ConeGeometry(1.35, 3.2, 7).translate(0, 5.7, 0), 0x3c9447),
     ]);
     const rnd = mulberry32(T.seed + 99), spots = [];
-    const lim = T.R + 140;
-    for (let tries = 0; tries < 2500 && spots.length < 420; tries++) {
+    const lim = T.R + 150;
+    for (let tries = 0; tries < 3000 && spots.length < 480; tries++) {
       const a = rnd() * 6.283, d = Math.sqrt(rnd()) * lim, x = Math.cos(a) * d, z = Math.sin(a) * d;
-      let ok = true;
-      for (let i = 0; i < N; i += 2) {
-        const ex = x - T.cx[i], ez = z - T.cz[i];
-        if (ex * ex + ez * ez < (hw + 7) ** 2) { ok = false; break; }
-      }
-      if (ok) spots.push([x, z, 0.8 + rnd() * 1.3, rnd()]);
+      const [y, dist] = this.heightAt(x, z);
+      if (dist > hw + 9) spots.push([x, y, z, 0.8 + rnd() * 1.3, rnd()]);
     }
     const trees = new THREE.InstancedMesh(tree, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }), spots.length);
-    spots.forEach(([x, z, s, h], i) => {
-      this.dummy.position.set(x, 0, z); this.dummy.rotation.set(0, h * 6, 0); this.dummy.scale.setScalar(s); this.dummy.updateMatrix();
+    spots.forEach(([x, y, z, s, h], i) => {
+      this.dummy.position.set(x, y, z); this.dummy.rotation.set(0, h * 6, 0); this.dummy.scale.setScalar(s); this.dummy.updateMatrix();
       trees.setMatrixAt(i, this.dummy.matrix);
       trees.setColorAt(i, this.col.setHSL(0.3, 0, 0.75 + h * 0.25));
     });
@@ -319,25 +366,45 @@ export class World {
   }
 
   poseHero(hero, car, cfg, dt) {
-    hero.position.set(car.x, 0, car.z);
-    hero.rotation.set(0, car.h, (-car.steer * car.v) / cfg.maxSpeed * 0.07);
+    const cl = (v, m) => (v > m ? m : v < -m ? -m : v);
+    hero.position.set(car.x, car.y, car.z);
+    // slope pitch + the body diving under braking, squatting under power and rolling in corners
+    hero.rotation.set(-car.pitch - cl(car.ax * 0.0035, 0.06), car.h, cl(car.ay * 0.005, 0.08));
     for (const w of hero.userData.wheels) {
       if (w.front) w.pivot.rotation.y = car.steer * cfg.steerLock;
-      w.spin.rotation.x += (car.v * dt) / 0.37;
+      w.spin.rotation.x += (car.vx * dt) / 0.37;
     }
     hero.userData.brake.emissiveIntensity = car.thr < -0.05 ? 4 : 0.6;
   }
 
+  puffSmoke(car, dt) {
+    const P = this.smoke.geometry.attributes.position, L = this.smokeLife;
+    for (let i = 0; i < MAX_SMOKE; i++) {
+      if (L[i] <= 0) continue;
+      L[i] -= dt;
+      if (L[i] <= 0) P.setY(i, -999); else P.setY(i, P.getY(i) + dt * 1.6);
+    }
+    if (car && car.alive && car.slip && car.v > 7 && dt > 0) {
+      for (const s of [-0.85, 0.85]) {
+        const i = (this.smokeI = (this.smokeI + 1) % MAX_SMOKE);
+        const sh = Math.sin(car.h), ch = Math.cos(car.h);
+        P.setXYZ(i, car.x - sh * 1.4 + ch * s + (Math.random() - 0.5) * 0.5, car.y + 0.3, car.z - ch * 1.4 - sh * s + (Math.random() - 0.5) * 0.5);
+        L[i] = 0.9;
+      }
+    }
+    P.needsUpdate = true;
+  }
+
   // ---- per-frame --------------------------------------------------------
-  render(sim, focus, view, dt, simDt) {
-    const cfg = sim.cfg, d = this.dummy, col = this.col, cars = sim.cars;
+  render(sim, cars, focus, view, dt, simDt) {
+    const cfg = sim.cfg, d = this.dummy, col = this.col;
     this.t += dt;
     const n = Math.min(cars.length, MAX_CARS);
     for (let i = 0; i < n; i++) {
       const c = cars[i];
       const hide = c === focus || (!c.alive && !c.finished && view.hideDead);
-      d.position.set(c.x, hide ? -50 : 0, c.z);
-      d.rotation.set(0, c.h, 0);
+      d.position.set(c.x, hide ? -90 : c.y, c.z);
+      d.rotation.set(-c.pitch, c.h, 0);
       d.scale.setScalar(hide ? 0.0001 : 1);
       d.updateMatrix();
       this.swarm.setMatrixAt(i, d.matrix);
@@ -353,7 +420,7 @@ export class World {
     if (focus) {
       this.poseHero(this.hero, focus, cfg, simDt);
       this.beacon.visible = !sim.human;
-      this.beacon.position.set(focus.x, 3.4 + Math.sin(this.t * 4) * 0.25, focus.z);
+      this.beacon.position.set(focus.x, focus.y + 3.4 + Math.sin(this.t * 4) * 0.25, focus.z);
       this.beacon.rotation.y = this.t * 2;
     }
     const human = sim.human;
@@ -369,10 +436,11 @@ export class World {
       for (let k = 0; k < nr; k++) {
         const a = rc.h + sensorAngle(cfg, k, rc.rays.length), dist = rc.rays[k];
         const ex = rc.x + Math.sin(a) * dist, ez = rc.z + Math.cos(a) * dist;
-        P.setXYZ(k * 2, rc.x, 0.7, rc.z); P.setXYZ(k * 2 + 1, ex, 0.7, ez);
+        const ry = rc.y + 0.7;
+        P.setXYZ(k * 2, rc.x, ry, rc.z); P.setXYZ(k * 2 + 1, ex, ry, ez);
         col.setHSL(0.36 * Math.min(1, dist / cfg.sensorRange), 0.95, 0.55);
         C.setXYZ(k * 2, col.r, col.g, col.b); C.setXYZ(k * 2 + 1, col.r, col.g, col.b);
-        d.position.set(ex, 0.7, ez); d.rotation.set(0, 0, 0); d.scale.setScalar(dist < cfg.sensorRange - 0.01 ? 1 : 0.0001); d.updateMatrix();
+        d.position.set(ex, ry, ez); d.rotation.set(0, 0, 0); d.scale.setScalar(dist < cfg.sensorRange - 0.01 ? 1 : 0.0001); d.updateMatrix();
         this.hits.setMatrixAt(k, d.matrix); this.hits.setColorAt(k, col);
       }
       d.scale.setScalar(1);
@@ -383,6 +451,7 @@ export class World {
       this.hits.instanceColor.needsUpdate = true;
     }
 
+    this.puffSmoke(human || focus, simDt || (human ? dt : 0));
     this.clouds.rotation.y += dt * 0.004;
     this.updateCamera(human || focus, dt);
     this.renderer.render(this.scene, this.camera);
@@ -390,7 +459,7 @@ export class World {
 
   updateCamera(car, dt) {
     const cam = this.camera, k = 1 - Math.exp(-dt * 5);
-    const fx = car ? car.x : 0, fz = car ? car.z : 0;
+    const fx = car ? car.x : 0, fy = car ? car.y : 0, fz = car ? car.z : 0;
     if (this.mode === 'orbit') {
       this.controls.update();
     } else if (this.mode === 'top') {
@@ -406,8 +475,8 @@ export class World {
       const hood = this.mode === 'hood';
       this.camH += dh * (hood ? 1 - Math.exp(-dt * 14) : k);
       const sx = Math.sin(this.camH), sz = Math.cos(this.camH);
-      const want = hood ? new THREE.Vector3(fx - sx * 0.2, 1.45, fz - sz * 0.2) : new THREE.Vector3(fx - sx * 11.5, 5.2, fz - sz * 11.5);
-      const look = hood ? new THREE.Vector3(fx + sx * 20, 1.0, fz + sz * 20) : new THREE.Vector3(fx + sx * 5, 1.2, fz + sz * 5);
+      const want = hood ? new THREE.Vector3(fx - sx * 0.2, fy + 1.45, fz - sz * 0.2) : new THREE.Vector3(fx - sx * 11.5, fy + 5.2, fz - sz * 11.5);
+      const look = hood ? new THREE.Vector3(fx + sx * 20, fy + 1.0 + Math.tan(car.pitch) * 20, fz + sz * 20) : new THREE.Vector3(fx + sx * 5, fy + 1.2, fz + sz * 5);
       const far = this.camPos.distanceTo(want) > 150; // leader jumped (new generation): snap closer fast
       this.camPos.lerp(want, hood ? 1 - Math.exp(-dt * 20) : far ? 1 - Math.exp(-dt * 12) : k);
       this.camLook.lerp(look, hood ? 1 : 1 - Math.exp(-dt * 8));
@@ -417,7 +486,7 @@ export class World {
     if (this.mode !== 'chase' && this.mode !== 'hood') this.camPos.copy(cam.position);
     this.hero.visible = !(this.mode === 'hood' && !this.humanCar.visible);
     if (this.mode === 'hood' && this.humanCar.visible) this.humanCar.visible = false;
-    this.sun.position.set(fx + 70, 120, fz + 45);
-    this.sun.target.position.set(fx, 0, fz);
+    this.sun.position.set(fx + 70, fy + 120, fz + 45);
+    this.sun.target.position.set(fx, fy, fz);
   }
 }

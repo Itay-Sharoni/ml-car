@@ -31,15 +31,20 @@
     <div class="stats">
       <div class="stat"><b id="sGen">1</b><span>Generation</span></div>
       <div class="stat"><b id="sAlive">0</b><span>Cars alive</span></div>
-      <div class="stat"><b id="sSpeed">0</b><span>Leader km/h</span></div>
-      <div class="stat"><b id="sTime">0s</b><span>Gen time</span></div>
+      <div class="stat"><b id="sFin">—</b><span>Finished last gen</span></div>
+      <div class="stat"><b id="sTime">0:00.0</b><span>Gen time</span></div>
       <div class="stat"><b id="sBestTime">—</b><span>Best 3-lap time</span></div>
       <div class="stat"><b id="sBestFit">0</b><span>Best distance score</span></div>
     </div>
 
     <section class="card">
-      <h3>Leader's brain <small>live</small></h3>
-      <canvas id="net" class="viz" style="height:230px"></canvas>
+      <h3 id="dashTitle">Leader's dashboard</h3>
+      <canvas id="dash" class="viz" style="height:94px"></canvas>
+    </section>
+
+    <section class="card">
+      <h3>Brain <small>live</small></h3>
+      <canvas id="net" class="viz" style="height:215px"></canvas>
       <p class="hint">Left: what the car senses. Right: what it decides. <i class="dot pos"></i> positive signal <i class="dot neg"></i> negative signal</p>
     </section>
 
@@ -51,7 +56,7 @@
 
     <section class="card">
       <h3>Track map</h3>
-      <canvas id="map" class="viz" style="height:170px"></canvas>
+      <canvas id="map" class="viz" style="height:150px"></canvas>
     </section>
   </aside>
 
@@ -62,6 +67,7 @@
     <button id="bSkip" title="End this generation now and breed the next">Next gen</button>
     <button id="bTrack" title="Generate a brand-new random road">New track</button>
     <button id="bReset" title="Forget everything and start from random brains">Reset brains</button>
+    <button id="bSolo" class="gold" title="Pause training and send out only the best car so far for a timed run">Run champion</button>
     <span class="sep"></span>
     <div class="seg" id="cams">
       <button data-cam="chase" class="on">Chase</button>
@@ -74,16 +80,28 @@
     <button id="bHelp">How it works</button>
   </div>
 
+  <!-- champion solo run -->
+  <div class="solo hidden" id="solo">
+    <div class="solo-head">Champion run <span id="soloState"></span></div>
+    <div class="solo-laps" id="soloLaps"></div>
+    <div class="solo-res" id="soloRes"></div>
+    <div class="btn-row">
+      <button id="bSoloAgain">Run again</button>
+      <button id="bSoloNew" title="Does the brain really know how to drive, or did it memorise this road?">Test on a new road</button>
+      <button id="bSoloExit" class="primary">Back to training</button>
+    </div>
+  </div>
+
   <div id="toasts"></div>
 
   <!-- welcome / how it works -->
   <div class="modal" id="help">
     <div class="modal-box">
       <h1>Watch cars teach themselves to drive</h1>
-      <p class="lead">Nobody programs the driving. Each car has a small neural network for a brain, and evolution finds the weights. The goal: finish <b>3 laps</b> without leaving the road.</p>
+      <p class="lead">Nobody programs the driving. Each sports car has a small neural network for a brain, and evolution finds the weights. The physics are real: tyre grip, weight transfer, engine power, hills and gravity. The goal: finish <b>3 laps</b> without leaving the road.</p>
       <ol class="steps">
-        <li><b>Sense</b><span>Each car shoots distance rays at the road edges. Those distances, plus its speed, are the only things it knows.</span></li>
-        <li><b>Think</b><span>The numbers flow through the neural network and come out as two decisions: steering and gas/brake.</span></li>
+        <li><b>Sense</b><span>Each car shoots distance rays at the road edges. Those distances, plus its speed, slide and spin, are all it knows.</span></li>
+        <li><b>Think</b><span>The numbers flow through the neural network and come out as two decisions: steering wheel and gas/brake pedal.</span></li>
         <li><b>Try</b><span>A whole population drives at once, each with a slightly different brain. Generation 1 is pure random chaos.</span></li>
         <li><b>Score</b><span>The farther a car gets (and the faster it finishes), the higher its fitness score.</span></li>
         <li><b>Evolve</b><span>The best brains survive, get mixed together and randomly mutated to make the next generation. Repeat.</span></li>
@@ -93,8 +111,10 @@
         <li>Set <b>Hidden layers</b> to 0. Can a brain with no hidden neurons still drive?</li>
         <li>Give the cars only <b>3 sensors</b>, or a narrow field of view.</li>
         <li>Crank <b>Mutation strength</b> to the max and watch learning fall apart. Then set it near zero.</li>
-        <li>Turn <b>Grip</b> way down (ice) or <b>Top speed</b> way up, and see if they learn to brake.</li>
-        <li>Set <b>New road every</b> to 1 so they can't memorise a track, then hit <b>Drive it yourself</b> and race them.</li>
+        <li>Turn <b>Tyre grip</b> down to 0.4 (ice), or <b>Engine power</b> up to 1000 hp, and see if they adapt.</li>
+        <li>Set <b>Gravity</b> to the Moon's 1.6 and watch the cars float through corners.</li>
+        <li>Press <b>Run champion</b> for a timed solo run of the best car, then <b>Test on a new road</b> to see if it really learned to drive.</li>
+        <li>Hit <b>Drive it yourself</b> and try to beat its lap time.</li>
       </ul>
       <button class="primary big" id="bStart">Start training</button>
     </div>
