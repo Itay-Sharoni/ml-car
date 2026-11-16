@@ -13,9 +13,27 @@ export const SCHEMA = [
       { key: 'mutationStrength', label: 'Mutation strength', min: 0.02, max: 1.5, step: 0.01, kind: 'next', hint: 'How big each nudge is. Big = wild exploration. Small = careful fine-tuning.' },
       { key: 'crossover', label: 'Crossover (two parents)', type: 'toggle', kind: 'next', hint: 'Children mix the weights of two parents instead of cloning one.' },
       { key: 'speedWeight', label: 'Speed reward', min: 0, max: 3, step: 0.1, kind: 'next', hint: 'How much pace counts in the score. 0 = only distance matters, so slow and safe wins. Higher pushes cars to be fast, at the price of more crashes.' },
+      { key: 'gearWeight', label: 'Gear reward', min: 0, max: 1, step: 0.05, kind: 'next', hint: 'Manual gearbox only. Time spent in the right gear multiplies the score up, the wrong gear (engine bogged down or bouncing off the limiter) multiplies it down. 0 = no gear points: only the lap time tells them.' },
+      { key: 'driftWeight', label: 'Drift reward', min: 0, max: 5, step: 0.1, kind: 'next', zero: 'off', hint: 'Points for sliding sideways at speed. Off by default: sliding is slow. Turn it up and evolution starts showing off.' },
       { key: 'minPace', label: 'Minimum pace', pct: true, min: 0, max: 0.9, step: 0.05, kind: 'live', zero: 'off', hint: 'Cars that fall behind this share of par pace are eliminated for being too slow.' },
       { key: 'lapsTarget', label: 'Laps to finish', min: 1, max: 10, step: 1, kind: 'live', hint: 'How many laps count as finishing the race.' },
       { key: 'timeLimit', label: 'Time limit', unit: 's', min: 30, max: 600, step: 10, kind: 'live', hint: 'A generation ends when every car has crashed or finished, or after this long.' },
+    ],
+  },
+  {
+    title: 'Racing', hint: 'Cars against each other, not just against the clock.',
+    items: [
+      { key: 'collide', label: 'Car collisions', type: 'toggle', kind: 'next', hint: 'Cars bump into each other instead of driving through one another, line up on a starting grid, and their eyes see other cars. Applies to training and to the champion run. A brain trained without it has never seen another car, so train with it on before racing.' },
+      { key: 'raceCars', label: 'Cars in the champion run', min: 1, max: 20, step: 1, kind: 'live', hint: 'Run champion sends out this many of the best brains of the last generation, from a grid. The champion starts on pole.' },
+    ],
+  },
+  {
+    title: "Driver's controls", hint: 'What the driver has in their hands and under their feet. Each control is an output neuron of the brain.',
+    items: [
+      { key: 'gearbox', label: 'Gearbox', type: 'select', options: ['Manual', 'Auto'], kind: 'reset', hint: 'Manual: the brain shifts up and down itself, like paddle shifters, and has to learn when. Auto: the car always picks the best gear.' },
+      { key: 'handbrake', label: 'Handbrake', type: 'toggle', kind: 'reset', hint: 'The brain can pull the handbrake as hard as it likes. It brakes only the rear wheels: pull hard and they lock, the tail steps out and the car drifts.' },
+      { key: 'wheelTurns', label: 'Steering wheel turns', unit: ' turns', min: 0.5, max: 2.5, step: 0.25, kind: 'live', hint: 'Turns of the wheel from centre to full lock. 1.5 is a road car. More turns = finer control but slower from lock to lock.' },
+      { key: 'handSpeed', label: 'Hand speed', unit: '°/s', min: 200, max: 2000, step: 50, kind: 'live', hint: 'How fast the driver can spin the steering wheel. A quick racing driver manages about 900° per second.' },
     ],
   },
   {
@@ -134,7 +152,7 @@ export class UI {
         const obj = it.obj === 'view' ? this.view : this.cfg;
         const tag = TAGS[it.kind] ? `<span class="tag">${TAGS[it.kind]}</span>` : '';
         if (it.type === 'select') {
-          el.innerHTML = `<div class="ctl-row"><label>${it.label}</label></div><div class="seg wide"></div><small>${it.hint}</small>`;
+          el.innerHTML = `<div class="ctl-row"><label>${it.label}${tag}</label></div><div class="seg wide"></div><small>${it.hint}</small>`;
           const box = el.querySelector('.seg');
           const sync = () => [...box.children].forEach((b) => b.classList.toggle('on', b.textContent === obj[it.key]));
           for (const opt of it.options) {
@@ -174,7 +192,7 @@ export class UI {
   hud(sim, car, mode) {
     const cfg = sim.cfg, N = sim.track.n, last = sim.history[sim.history.length - 1];
     $('sGen').textContent = sim.gen;
-    $('sAlive').textContent = mode === 'solo' ? '1' : `${sim.alive}/${sim.cars.length}`;
+    $('sAlive').textContent = mode === 'solo' ? `${sim.solo.all.filter((c) => c.alive).length}/${sim.solo.all.length}` : `${sim.alive}/${sim.cars.length}`;
     $('sFin').textContent = last ? `${last.finished}/${cfg.population}` : '—';
     $('sBestTime').textContent = fmtTime(sim.records.bestTime);
     $('sBestTime').nextElementSibling.textContent = `Best ${cfg.lapsTarget}-lap time`;
@@ -184,6 +202,8 @@ export class UI {
     $('sGap').textContent = isFinite(gap) ? fmtGap(gap) : '—';
     $('sGap').style.color = !isFinite(gap) ? '' : gap <= 0 ? '#5fd38d' : gap < sim.par.total * 0.15 ? css('--gold') : '#ff7a6b';
 
+    // manual gearbox: how much of the engine's push the driver has had available so far
+    const gearTxt = car && cfg.gearbox === 'Manual' ? ` · right gear ${Math.round(((sim.gearScore(car) + 1) / 2) * 100)}%` : '';
     const laps = cfg.lapsTarget;
     if (this.pipCount !== laps) {
       $('pips').innerHTML = Array.from({ length: laps }, () => '<div class="pip"><i></i></div>').join('');
@@ -194,13 +214,13 @@ export class UI {
     $('lapTitle').textContent = car && car.finished ? 'FINISHED' : `LAP ${Math.min(laps, done + 1)} / ${laps}`;
     $('lapSub').textContent =
       mode === 'drive' ? 'You are driving — arrows or WASD'
-      : mode === 'solo' ? `Champion run · ${fmtTime(car.time)}`
-      : car && !car.alive ? `Leader ${car.why}` : `Leader · ${fmtTime(car ? car.time : 0)} · ${car ? Math.round(sim.pace(car) * 100) : 0}% of par pace`;
+      : mode === 'solo' ? `Champion run · ${fmtTime(car.time)}${gearTxt}`
+      : car && !car.alive ? `Leader ${car.why}` : `Leader · ${fmtTime(car ? car.time : 0)} · ${car ? Math.round(sim.pace(car) * 100) : 0}% of par pace${gearTxt}`;
     [...$('pips').children].forEach((el, i) => (el.firstChild.style.width = Math.max(0, Math.min(1, p - i)) * 100 + '%'));
   }
 
-  // Speedo, gear, revs, pedals, steering and a g-force meter for the watched car.
-  drawDash(car) {
+  // Speedo, gear, revs, pedals, handbrake, steering wheel and a g-force meter for the watched car.
+  drawDash(car, cfg = this.cfg) {
     const { ctx, w, h } = fit($('dash'));
     if (!car) return;
     const kmh = car.v * 3.6, gear = car.gear, rpm = car.rpm;
@@ -219,8 +239,14 @@ export class UI {
     ctx.fillStyle = mute; ctx.font = '10px ui-sans-serif, system-ui';
     ctx.fillText('km/h', 8, 70);
     ctx.fillText('GEAR', 96, 32);
-    ctx.fillStyle = acc; ctx.font = '800 26px ui-sans-serif, system-ui';
-    ctx.fillText(car.v < 0.3 ? 'N' : gear, 98, 58);
+    // the gear number goes green in the right gear and red in the wrong one
+    ctx.fillStyle = car.gearOk > 0.8 ? '#5fd38d' : car.gearOk > 0.3 ? css('--gold') : '#ff4d4d';
+    ctx.font = '800 26px ui-sans-serif, system-ui';
+    ctx.fillText(gear, 98, 58);
+    // steering wheel angle
+    const wheel = Math.round(car.steer * cfg.wheelTurns * 360);
+    ctx.fillStyle = mute; ctx.font = '10px ui-sans-serif, system-ui';
+    ctx.fillText(wheel === 0 ? 'wheel 0°' : `wheel ${Math.abs(wheel)}° ${wheel > 0 ? 'L' : 'R'}`, 60, 72);
     // steering
     const sx = 8, sw = 118, sy = 80;
     ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fillRect(sx, sy, sw, 5);
@@ -234,8 +260,9 @@ export class UI {
       ctx.fillStyle = color; ctx.fillRect(x, 78 - 56 * v, 10, 56 * v);
       ctx.fillStyle = mute; ctx.font = '9px ui-sans-serif, system-ui'; ctx.textAlign = 'center'; ctx.fillText(label, x + 5, 89);
     };
-    bar(146, Math.max(0, car.thr), '#5fd38d', 'gas');
-    bar(166, Math.max(0, -car.thr), '#ff4d4d', 'brk');
+    bar(140, Math.max(0, car.thr), '#5fd38d', 'gas');
+    bar(157, Math.max(0, -car.thr), '#ff4d4d', 'brk');
+    bar(174, car.hand, css('--gold'), 'hb');
     // g-meter (shows the force you would feel: braking throws you forward)
     const gx = w - 44, gy = 48, gr = 30, G = 9.81 * 1.8;
     ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 1;
@@ -289,7 +316,7 @@ export class UI {
     });
   }
 
-  drawNet(brain, inputs = []) {
+  drawNet(brain, inputs = [], controls = []) {
     const cv = $('net');
     if (brain) { // many senses need a taller picture
       const want = Math.max(200, Math.min(340, 16 + brain.sizes[0] * 11));
@@ -297,7 +324,7 @@ export class UI {
     }
     const { ctx, w, h } = fit(cv);
     if (!brain) return;
-    const sizes = brain.sizes, L = sizes.length, padL = 58, padR = 46, nRays = sizes[0] - inputs.length;
+    const sizes = brain.sizes, L = sizes.length, padL = 58, padR = 62, nRays = sizes[0] - inputs.length;
     const X = (l) => padL + ((w - padL - padR) * l) / (L - 1);
     const Y = (l, i) => h / 2 + (i - (sizes[l] - 1) / 2) * Math.min(22, (h - 16) / sizes[l]);
     const pos = css('--acc'), neg = css('--acc2');
@@ -328,7 +355,11 @@ export class UI {
         if (l === 0) { ctx.textAlign = 'right'; ctx.fillText(i < nRays ? 'ray ' + (i + 1) : inputs[i - nRays]?.label ?? '', x - r - 4, y); }
         if (l === L - 1) {
           ctx.textAlign = 'left';
-          const txt = i === 0 ? (a > 0.08 ? 'left' : a < -0.08 ? 'right' : 'straight') : a > 0 ? 'gas' : 'brake';
+          const name = controls[i] || (i ? 'pedal' : 'steer');
+          const txt = name === 'steer' ? (a > 0.08 ? 'left' : a < -0.08 ? 'right' : 'straight')
+            : name === 'pedal' ? (a > 0.1 ? 'gas' : a < -0.1 ? 'brake' : 'coast')
+            : name === 'shift' ? (a > 0.5 ? 'shift up' : a < -0.5 ? 'shift down' : 'hold gear')
+            : a > 0.3 ? 'handbrake' : 'hb off';
           ctx.fillStyle = '#eef1f6'; ctx.fillText(txt, x + r + 5, y);
         }
       }

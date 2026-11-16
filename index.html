@@ -13,7 +13,7 @@
   <!-- left: every tunable -->
   <aside class="panel left" id="left">
     <header class="brand">
-      <div class="logo">ML<span>·</span>CAR <small>v1.4</small></div>
+      <div class="logo">ML<span>·</span>CAR <small>v1.5</small></div>
       <p>Cars with tiny neural-network brains learn to drive by evolution. Tune anything, any time.</p>
     </header>
     <div id="controls"></div>
@@ -113,7 +113,7 @@
       <p class="lead">Nobody programs the driving. Each sports car has a small neural network for a brain, and evolution finds the weights. The physics are real: tyre grip, weight transfer, engine power, hills and gravity. The goal: finish <b>3 laps</b> without leaving the road.</p>
       <ol class="steps">
         <li><b>Sense</b><span>Each car shoots distance rays at the road edges, and feels what a driver feels: speed, g-forces, gear and revs, the hills and bends ahead.</span></li>
-        <li><b>Think</b><span>The numbers flow through the neural network and come out as two decisions: steering wheel and gas/brake pedal.</span></li>
+        <li><b>Think</b><span>The numbers flow through the neural network and come out as the driver's moves: steering wheel, gas/brake pedal, gear shifts and handbrake.</span></li>
         <li><b>Try</b><span>A whole population drives at once, each with a slightly different brain. Generation 1 is pure random chaos.</span></li>
         <li><b>Score</b><span>It is a time attack. Distance earns points, pace multiplies them, and the quickest finisher wins. Dawdle and you are eliminated.</span></li>
         <li><b>Evolve</b><span>The best brains survive, get mixed together and randomly mutated to make the next generation. Repeat.</span></li>
@@ -125,9 +125,12 @@
         <li>Open <b>Driver's senses</b> and switch senses off or on. Can it still race without g-forces, or without reading the bends ahead?</li>
         <li>Crank <b>Mutation strength</b> to the max and watch learning fall apart. Then set it near zero.</li>
         <li>Turn <b>Tyre grip</b> down to 0.4 (ice), or <b>Engine power</b> up to 1000 hp, and see if they adapt.</li>
+        <li>Set <b>Gear reward</b> to 0: do they still learn to shift? Or switch <b>Gearbox</b> to Auto and compare lap times.</li>
+        <li>Turn on <b>Car collisions</b>, train, then set <b>Cars in the champion run</b> to 8 and press Run champion for a race.</li>
+        <li>Turn <b>Drift reward</b> up and watch them learn the handbrake.</li>
         <li>Set <b>Gravity</b> to the Moon's 1.6 and watch the cars float through corners.</li>
         <li>Press <b>Run champion</b> for a timed solo run of the best car, then <b>Test on a new road</b> to see if it really learned to drive.</li>
-        <li>Hit <b>Drive it yourself</b> and try to beat its lap time.</li>
+        <li>Hit <b>Drive it yourself</b> and try to beat its lap time (arrows or WASD, E/Q to shift, X for the handbrake).</li>
       </ul>
       <button class="primary big" id="bStart">Start training</button>
     </div>

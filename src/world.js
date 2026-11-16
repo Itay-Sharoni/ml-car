@@ -383,7 +383,7 @@ export class World {
       if (w.front) w.pivot.rotation.y = car.steer * cfg.steerLock;
       w.spin.rotation.x += (car.vx * dt) / 0.37;
     }
-    hero.userData.brake.emissiveIntensity = car.thr < -0.05 ? 4 : 0.6;
+    hero.userData.brake.emissiveIntensity = car.thr < -0.05 || car.hand > 0.1 ? 4 : 0.6;
   }
 
   puffSmoke(car, dt) {

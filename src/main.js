@@ -43,15 +43,15 @@ function newTrack(seed) {
 
 function onAction(a) {
   if (a === 'save') {
-    const keep = ['sensors', 'sensorRange', 'sensorFov', 'sensorFocus', 'hiddenLayers', 'hiddenSize', ...SENSE_KEYS];
+    const keep = ['sensors', 'sensorRange', 'sensorFov', 'sensorFocus', 'hiddenLayers', 'hiddenSize', 'gearbox', 'handbrake', ...SENSE_KEYS];
     localStorage.setItem(SAVE_KEY, JSON.stringify({ cfg: Object.fromEntries(keep.map((k) => [k, cfg[k]])), w: Array.from(sim.bestBrain().w) }));
     ui.toast('Champion brain saved in this browser');
   } else if (a === 'load') {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return ui.toast('No saved champion yet');
     const data = JSON.parse(raw);
-    // champions saved before the extra senses existed only had speed, slide and spin
-    const legacy = Object.fromEntries(SENSE_KEYS.map((k) => [k, k === 'senseMotion']));
+    // champions saved by older versions: only speed, slide and spin senses, automatic gearbox, no handbrake
+    const legacy = { ...Object.fromEntries(SENSE_KEYS.map((k) => [k, k === 'senseMotion'])), gearbox: 'Auto', handbrake: false };
     const next = { ...cfg, ...legacy, ...data.cfg };
     if (data.w.length !== Brain.count(brainSizes(next))) return ui.toast('The saved champion does not fit this version');
     exitSolo();
@@ -91,8 +91,8 @@ function renderSolo() {
   const best = Math.min(...s.laps);
   $('soloLaps').innerHTML = s.laps.map((t, i) => `<div class="${s.laps.length > 1 && t === best ? 'best' : ''}"><b>LAP ${i + 1}</b>${fmtTime(t)}</div>`).join('');
   $('soloState').textContent = s.done ? '' : `· generation ${sim.gen} brain`;
-  if (!s.done) $('soloRes').textContent = s.laps.length ? '' : 'One car. The best brain so far. No second chances.';
-  else if (s.ok) $('soloRes').innerHTML = `<b>${fmtTime(s.car.time)}</b> &nbsp;·&nbsp; ${fmtGap(s.car.time - sim.par.total)} vs par &nbsp;·&nbsp; top speed ${Math.round(s.top * 3.6)} km/h &nbsp;·&nbsp; peak ${s.maxG.toFixed(1)} g`;
+  if (!s.done) $('soloRes').textContent = s.laps.length ? '' : s.all.length > 1 ? `The champion on pole against the next ${s.all.length - 1} best brains.` : 'One car. The best brain so far. No second chances.';
+  else if (s.ok) $('soloRes').innerHTML = `<b>${fmtTime(s.car.time)}</b>${s.all.length > 1 ? ` &nbsp;·&nbsp; P${s.pos} of ${s.all.length}` : ''} &nbsp;·&nbsp; ${fmtGap(s.car.time - sim.par.total)} vs par &nbsp;·&nbsp; top speed ${Math.round(s.top * 3.6)} km/h &nbsp;·&nbsp; peak ${s.maxG.toFixed(1)} g`;
   else $('soloRes').innerHTML = `${s.car.why === 'crashed' ? 'Crashed' : 'Stalled'} on lap ${s.laps.length + 1} after ${fmtTime(s.car.time)}. It needs more training.`;
 }
 
@@ -149,13 +149,15 @@ $('bDrive').onclick = () => {
   sim.setHuman(state.driving);
   $('bDrive').classList.toggle('on', state.driving);
   $('bDrive').textContent = state.driving ? 'Stop driving' : 'Drive it yourself';
-  if (state.driving) ui.toast('You have the blue car: arrows or WASD');
+  if (state.driving) ui.toast('You have the blue car: arrows or WASD, E/Q shift up/down, X handbrake');
 };
 
 const keys = {};
+let shiftKey = 0; // a gear change waiting to be sent to the car you are driving
 addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' && e.target.type !== 'range' && e.target.type !== 'checkbox') return;
   keys[e.code] = true;
+  if (!e.repeat && (e.code === 'KeyE' || e.code === 'KeyQ')) shiftKey = e.code === 'KeyE' ? 1 : -1;
   if (e.code === 'Space') { e.preventDefault(); if ($('help').classList.contains('hidden')) setPaused(!state.paused); }
   if (state.driving && e.code.startsWith('Arrow')) e.preventDefault();
 });
@@ -226,18 +228,18 @@ function loop(now) {
       hacc += dt / DT;
       const steer = (keys.ArrowLeft || keys.KeyA ? 1 : 0) - (keys.ArrowRight || keys.KeyD ? 1 : 0);
       const thr = (keys.ArrowUp || keys.KeyW ? 1 : 0) - (keys.ArrowDown || keys.KeyS ? 1 : 0);
-      for (let n = Math.min(6, Math.floor(hacc)); n > 0; n--) sim.stepHuman(steer, thr);
+      for (let n = Math.min(6, Math.floor(hacc)); n > 0; n--) { sim.stepHuman(steer, thr, shiftKey, keys.KeyX ? 1 : 0); shiftKey = 0; }
       hacc -= Math.floor(hacc);
     }
   }
   const f = pickFocus();
-  const cars = sim.solo ? [sim.solo.car] : sim.cars;
+  const cars = sim.solo ? sim.solo.all : sim.cars;
   const watched = sim.human || f; // the car whose dashboard we show
   world.render(sim, cars, f, view, dt, simDt);
   ui.hud(sim, watched, sim.human ? 'drive' : sim.solo ? 'solo' : 'train');
   ui.drawDash(watched);
   updateSound(watched);
-  if (frame % 2 === 0) ui.drawNet(f && f.brain, sim.inputs);
+  if (frame % 2 === 0) ui.drawNet(f && f.brain, sim.inputs, sim.controls);
   if (frame % 2 === 1) ui.drawSenses(sim, watched);
   if (frame % 3 === 0) ui.drawMap(sim, cars, f);
   frame++;

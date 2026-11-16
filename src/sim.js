@@ -9,23 +9,39 @@ const SUBSTEPS = 2;
 // Car geometry (metres). Mass, power, grip etc. are tunable in cfg.
 const WB = 2.6, CG_A = 1.3, CG_B = 1.3, CG_H = 0.46; // wheelbase, CG->front axle, CG->rear axle, CG height
 const TIRE_B = 12;        // tyre stiffness: grip peaks at roughly 8 degrees of slip
-const STEER_RATE = 5;     // how fast the steering wheel can move (full lock per 0.2 s)
 const PEDAL_RATE = 8;     // how fast the pedals can move
 export const SPEED_REF = 70; // m/s used to normalise the speed input
 const G0 = 9.81;              // one "g"
 const SLIP_PEAK = 0.144;      // slip angle (rad) where a tyre grips best
 const LOOK_NEAR = 40, LOOK_FAR = 100; // how far ahead (m) the driver reads the road
 
-// Six-speed automatic gearbox. Gear and revs follow road speed, and the engine
-// only makes full power near the top of the rev range.
+// Six-speed gearbox and engine. Torque is fairly flat and falls away at high
+// revs, so power peaks near 6700 rpm. In each gear the push at the wheels is
+// torque x gear ratio: a low gear pushes hard but runs out of revs, a high gear
+// is weak at low speed. Being in the wrong gear costs real acceleration.
 const GEAR_TOP = [70, 110, 155, 200, 250, 340]; // km/h at 7500 rpm in each gear
-export const REDLINE = 7800;
-const gearFor = (kmh) => { let g = 0; while (g < GEAR_TOP.length - 1 && kmh > GEAR_TOP[g] * 0.92) g++; return g; };
-const revsAt = (kmh, g) => Math.max(900, Math.min(REDLINE, (7500 * kmh) / GEAR_TOP[g]));
-export function powerBand(rpm) { // share of peak power available at these revs
-  const x = (rpm - 6800) / 6800;
-  return Math.max(0.2, 1 - 1.6 * x * x);
+export const GEARS = GEAR_TOP.length;
+export const REDLINE = 7800, IDLE = 900;
+const SHIFT_TIME = 0.25, SHIFT_CUT = 0.1; // a shift takes this long; the engine is disconnected for the first part
+const torqueAt = (rpm) => 1 - 0.6 * ((rpm - 4500) / 4500) ** 2;
+let TQ_PEAK = 0; // peak of torque x rpm, so that "power" means peak power
+for (let r = IDLE; r <= REDLINE; r += 50) TQ_PEAK = Math.max(TQ_PEAK, torqueAt(r) * r);
+const revsAt = (kmh, g) => Math.max(IDLE, (7500 * kmh) / GEAR_TOP[g]); // below idle the clutch slips
+// Push at the driven wheels (N) at full throttle in gear g (0-based). Zero on the rev limiter.
+function thrust(g, kmh, watts) {
+  const rpm = revsAt(kmh, g);
+  return rpm > REDLINE ? 0 : (watts * torqueAt(rpm) * (27000 / GEAR_TOP[g])) / TQ_PEAK;
 }
+// The gear with the most usable push at this speed (ties go to the lower gear).
+function bestGear(kmh, watts, cap) {
+  let best = 0, bestF = -1;
+  for (let g = 0; g < GEARS; g++) {
+    const f = Math.min(cap, thrust(g, kmh, watts));
+    if (f > bestF * 1.0001) { bestF = f; best = g; }
+  }
+  return best;
+}
+const CAR_R = 1.25; // cars are discs of this radius for car-to-car contact
 
 // Everything the driver can sense besides the distance rays. Each group can be
 // switched on or off in the UI, and each input is one neuron of the brain.
@@ -39,7 +55,7 @@ const rise = (grade, dist) => { const m = grade * dist; return (m >= 0 ? '+' : '
 export const SENSES = [
   { key: 'senseMotion', title: 'Speed & balance', inputs: [
     { label: 'speed', read: (c) => c.v / SPEED_REF, show: (c) => Math.round(c.v * 3.6) + ' km/h' },
-    { label: 'slide', dir: true, read: (c) => c.vy / 8, show: (c) => Math.abs(c.vy).toFixed(1) + ' m/s' },
+    { label: 'slide', dir: true, read: (c) => c.vy / 8, show: (c) => (c.v > 2 ? Math.abs(Math.round(Math.atan2(c.vy, c.vx) * 57.3)) : 0) + '° drift' },
     { label: 'spin', dir: true, read: (c) => c.r / 1.5, show: (c) => Math.abs(Math.round(c.r * 57.3)) + ' °/s' },
   ] },
   { key: 'senseG', title: 'G-forces', inputs: [
@@ -48,8 +64,8 @@ export const SENSES = [
     { label: 'vertical g', read: (c) => (c.gz - 1) * 2, show: (c) => c.gz.toFixed(2) + ' g' },
   ] },
   { key: 'senseEngine', title: 'Engine', inputs: [
-    { label: 'gear', read: (c) => c.gear / 6, show: (c) => (c.v < 0.3 ? 'N' : String(c.gear)) },
-    { label: 'revs', read: (c) => c.rpm / REDLINE, show: (c) => Math.round(c.rpm / 100) * 100 + ' rpm' },
+    { label: 'gear', read: (c) => c.gear / GEARS, show: (c) => String(c.gear) },
+    { label: 'revs', read: (c) => c.rpm / REDLINE, show: (c) => Math.round(Math.min(c.rpm, REDLINE) / 100) * 100 + ' rpm' },
   ] },
   { key: 'senseHills', title: 'Depth: hills', inputs: [
     { label: 'slope', read: (c) => c.grade * 8, show: (c) => (c.grade >= 0 ? '+' : '−') + Math.abs(c.grade * 100).toFixed(0) + '%' },
@@ -69,8 +85,8 @@ export const SENSES = [
     { label: 'rear slip', dir: true, read: (c) => c.ar / SLIP_PEAK, show: (c) => Math.abs(c.ar * 57.3).toFixed(1) + '°' },
   ] },
   { key: 'senseControls', title: 'Hands & feet', inputs: [
-    { label: 'wheel', dir: true, read: (c) => c.steer, show: (c) => Math.round(Math.abs(c.steer) * 100) + '%' },
-    { label: 'pedal', read: (c) => c.thr, show: (c) => (c.thr >= 0 ? 'gas ' : 'brake ') + Math.round(Math.abs(c.thr) * 100) + '%' },
+    { label: 'wheel', dir: true, read: (c) => c.steer, show: (c, s) => Math.round(Math.abs(c.steer) * s.cfg.wheelTurns * 360) + '°' },
+    { label: 'pedal', read: (c) => c.thr, show: (c) => (c.thr === 0 ? 'coasting' : (c.thr > 0 ? 'gas ' : 'brake ') + Math.round(Math.abs(c.thr) * 100) + '%') },
   ] },
 ];
 export const SENSE_KEYS = SENSES.map((g) => g.key);
@@ -94,9 +110,19 @@ export const defaults = {
   mutationStrength: 0.25,
   crossover: true,
   speedWeight: 1, // how much pace counts in the score (0 = only distance matters)
+  gearWeight: 0.3,  // manual gearbox: score bonus for the right gear, penalty for the wrong one
+  driftWeight: 0,   // points for sliding sideways at speed (0 = drifting is not rewarded)
   minPace: 0.4,     // cars slower than this fraction of par pace are eliminated
   timeLimit: 300,
   lapsTarget: 3,
+  // racing
+  collide: false,   // cars bump into each other, start from a grid, and see each other
+  raceCars: 1,      // how many of the best brains take part in the champion run
+  // driver's controls
+  gearbox: 'Manual', // 'Manual': the brain shifts gears itself. 'Auto': the car does it.
+  handbrake: true,   // the brain can pull the handbrake, as hard as it likes
+  wheelTurns: 1.5,   // steering wheel turns from centre to full lock
+  handSpeed: 900,    // how fast the driver can turn the wheel, degrees per second
   // brain
   sensors: 9,
   sensorRange: 120,
@@ -144,8 +170,16 @@ export function sensorAngle(cfg, k, n = cfg.sensors) {
 export function brainSizes(cfg) {
   const s = [cfg.sensors + senseInputs(cfg).length];
   for (let i = 0; i < cfg.hiddenLayers; i++) s.push(cfg.hiddenSize);
-  s.push(2);
+  s.push(controlNames(cfg).length);
   return s;
+}
+
+// What the brain controls: one output neuron each.
+export function controlNames(cfg) {
+  const out = ['steer', 'pedal'];
+  if (cfg.gearbox === 'Manual') out.push('shift');
+  if (cfg.handbrake) out.push('handbrake');
+  return out;
 }
 
 export class Sim {
@@ -199,13 +233,13 @@ export class Sim {
       const den = Math.abs(T.curv[i]) - aero;
       v[i] = den > 1e-4 ? Math.min(VMAX, Math.sqrt((mu * g) / den)) : VMAX; // cornering limit
     }
-    const traction = mu * g * (c.drive === 'AWD' ? 1 : 0.55);
+    const traction = mu * g * (c.drive === 'AWD' ? 1 : 0.55), watts = c.power * 745.7;
     const braking = Math.min(c.brake * 9.81, mu * g);
     for (let pass = 0; pass < 3; pass++) {
       for (let i = 0; i < N; i++) { // accelerate out of corners
         const j = (i + 1) % N;
-        const kmh = v[i] * 3.6, band = powerBand(revsAt(kmh, gearFor(kmh)));
-        const a = Math.min(traction, (c.power * 745.7 * band) / m / Math.max(v[i], 4)) - (0.372 * v[i] * v[i]) / m - g * T.slope[i];
+        const kmh = v[i] * 3.6;
+        const a = Math.min(traction, thrust(bestGear(kmh, watts, 1e9), kmh, watts) / m) - (0.372 * v[i] * v[i]) / m - g * T.slope[i];
         v[j] = Math.min(v[j], Math.sqrt(Math.max(9, v[i] * v[i] + 2 * a * ds)));
       }
       for (let i = N - 1; i >= 0; i--) { // brake in time for the next one
@@ -224,6 +258,8 @@ export class Sim {
     const c = this.cfg;
     const sizes = brainSizes(c);
     this.inputs = senseInputs(c);
+    this.controls = controlNames(c);
+    this.top = []; // best brains of the last generation, for the champion run
     this.gen = 1;
     this.history = [];
     this.champion = seed || null;
@@ -243,23 +279,33 @@ export class Sim {
 
   spawn(brains) {
     this.updatePar(); // car settings may have changed since the last generation
-    this.cars = brains.map((b, i) => this.makeCar(b, i));
+    // with collisions on, cars line up on a grid instead of starting on top of each other
+    this.cars = brains.map((b, i) => this.makeCar(b, i, this.cfg.collide ? i : -1));
     this.time = 0;
     this.alive = this.cars.length;
   }
 
-  makeCar(brain, id) {
-    const T = this.track;
+  // slot >= 0 puts the car on the starting grid: two columns, rows 8 m apart,
+  // behind the line. Everyone still drives the same distance: laps are counted
+  // from the car's own grid slot.
+  makeCar(brain, id, slot = -1) {
+    const T = this.track, N = T.n;
+    let i = 0, off = 0;
+    if (slot >= 0) {
+      i = (((-2 - (slot >> 1) * 4 - (slot & 1) * 2) % N) + N) % N;
+      off = (slot & 1 ? -1 : 1) * Math.min(T.hw - 2, Math.max(1.6, T.hw * 0.4));
+    }
     const extra = this.inputs.length;
     const n = brain ? brain.sizes[0] - extra : this.cfg.sensors;
     return {
       id, brain, gen: this.gen,
-      x: T.cx[0], y: T.cy[0], z: T.cz[0], h: Math.atan2(T.tx[0], T.tz[0]), pitch: 0,
+      x: T.cx[i] + T.nx[i] * off, y: T.cy[i], z: T.cz[i] + T.nz[i] * off, h: Math.atan2(T.tx[i], T.tz[i]), pitch: 0,
       vx: 0, vy: 0, r: 0, v: 0, ax: 0, ay: 0,   // body-frame velocity, yaw rate, speed, accelerations
       gz: this.cfg.gravity / G0, af: 0, ar: 0,  // vertical g, front and rear tyre slip angles
-      gear: 1, rpm: 900, grade: 0,              // gearbox, slope under the car
-      steer: 0, thr: 0, slip: false,
-      seg: 0, segAbs: 0, prog: 0, bestProg: 0, stall: 0, lat: 0, side: 0, yawErr: 0, off: false,
+      gear: 1, rpm: IDLE, shiftT: 0, grade: 0,  // gearbox, slope under the car
+      gearOk: 1, gearSum: 0, drift: 0, hits: 0, // right-gear score (now and summed), drift points, contacts
+      steer: 0, thr: 0, hand: 0, slip: false,   // steering wheel, pedal (+gas / -brake), handbrake
+      seg: i, segAbs: 0, prog: 0, bestProg: 0, stall: 0, lat: 0, side: 0, yawErr: 0, off: false,
       alive: true, finished: false, why: '', time: 0, fitness: 0,
       rays: new Float32Array(n), inp: new Float32Array(n + extra),
     };
@@ -273,6 +319,16 @@ export class Sim {
     const fwd = Math.min(half, Math.ceil(range / T.segLen) + 4);
     const back = Math.min(half, cfg.sensorFov > 180 ? fwd : 12);
     const ox = car.x, oz = car.z;
+    const near = this.near || (this.near = []);
+    let seen = 0;
+    if (cfg.collide && car.id >= 0) {
+      const lim = (range + CAR_R) * (range + CAR_R);
+      for (const o of this.field()) {
+        if (o === car || !o.alive) continue;
+        const ex = o.x - ox, ez = o.z - oz;
+        if (ex * ex + ez * ez < lim) near[seen++] = o;
+      }
+    }
     for (let k = 0; k < n; k++) {
       const a = car.h + sensorAngle(cfg, k, n);
       const dx = Math.sin(a), dz = Math.cos(a);
@@ -290,6 +346,14 @@ export class Sim {
           const u = (v1x * dz - v1z * dx) / den;
           if (u >= 0 && u <= 1) best = t;
         }
+      }
+      // eyes also see other cars when collisions are on
+      for (let q = 0; q < seen; q++) {
+        const o = near[q], cx = ox - o.x, cz = oz - o.z;
+        const b = cx * dx + cz * dz, disc = b * b - (cx * cx + cz * cz - CAR_R * CAR_R);
+        if (disc <= 0) continue;
+        const t = -b - Math.sqrt(disc);
+        if (t > 0 && t < best) best = t;
       }
       car.rays[k] = best;
       car.inp[k] = best / range;
@@ -326,18 +390,26 @@ export class Sim {
     const Wf = Math.max(150, (m * gN * CG_B) / WB - shift + 0.4 * down);
     const Wr = Math.max(150, (m * gN * CG_A) / WB + shift + 0.6 * down);
 
-    // engine (power-limited) or brakes
-    let Fxf = 0, Fxr = 0;
+    // engine through the gearbox, engine braking when off the gas, brakes
+    let Fxf = 0, Fxr = 0, Fd = 0;
+    const gi = car.gear - 1;
     if (car.thr > 0) {
-      const F = car.thr * Math.min(1.15 * m * 9.81, (c.power * 745.7 * powerBand(car.rpm)) / Math.max(car.vx, 4));
-      if (c.drive === 'RWD') Fxr = F; else if (c.drive === 'FWD') Fxf = F; else { Fxf = 0.4 * F; Fxr = 0.6 * F; }
-    } else if (car.vx > 0.2) {
+      if (car.shiftT <= SHIFT_TIME - SHIFT_CUT) Fd = car.thr * Math.min(1.15 * m * 9.81, thrust(gi, car.vx * 3.6, c.power * 745.7));
+    } else if (car.vx > 2) {
+      Fd = -0.12 * m * 9.81 * (GEAR_TOP[0] / GEAR_TOP[gi]) * Math.min(1, car.rpm / REDLINE); // strongest in a low gear at high revs
+    }
+    if (c.drive === 'RWD') Fxr = Fd; else if (c.drive === 'FWD') Fxf = Fd; else { Fxf = 0.4 * Fd; Fxr = 0.6 * Fd; }
+    if (car.thr < 0 && car.vx > 0.2) {
       const F = car.thr * c.brake * m * 9.81;
-      Fxf = 0.62 * F; Fxr = 0.38 * F;
+      Fxf += 0.62 * F; Fxr += 0.38 * F;
     }
 
     // friction circle: what is spent on drive/brake is not available for cornering
     const capF = c.grip * Wf, capR = c.grip * 1.06 * Wr;
+    // handbrake: brakes the rear wheels only, and ABS cannot save you. Pull it
+    // hard enough and the rears lock, lose their sideways grip, and the tail steps out.
+    let yank = false;
+    if (car.hand > 0 && car.vx > 0.2) { Fxr -= car.hand * 1.2 * capR; yank = Fxr < -capR * 0.96; }
     let latF, latR, lim = capF * 0.96;
     car.slip = false;
     if (Fxf > lim || Fxf < -lim) {
@@ -347,7 +419,7 @@ export class Sim {
     lim = capR * 0.96;
     if (Fxr > lim || Fxr < -lim) {
       const s = Fxr > 0 ? 1 : -1; car.slip = true;
-      if (c.aids) { Fxr = s * lim; latR = capR * 0.28; } else { Fxr = s * capR * 0.78; latR = capR * 0.1; }
+      if (c.aids && !yank) { Fxr = s * lim; latR = capR * 0.28; } else { Fxr = s * capR * 0.78; latR = capR * 0.1; }
     } else latR = Math.sqrt(capR * capR - Fxr * Fxr);
 
     // tyre slip angles -> sideways forces (simplified Pacejka "magic formula")
@@ -381,20 +453,42 @@ export class Sim {
     car.ay += (fy - car.ay) * 0.25;
   }
 
-  // steerCmd in -1..1 (positive = left), thrCmd in -1..1 (negative = brake)
-  move(car, steerCmd, thrCmd, dt) {
-    const T = this.track, N = T.n;
-    // steering wheel and pedals take time to move
-    let d = steerCmd - car.steer, mx = STEER_RATE * dt;
+  // Sequential shift, like paddles: one gear up or down. The gearbox refuses a
+  // downshift that would send the engine past the red line.
+  shift(car, dir) {
+    const g = car.gear + dir;
+    if (car.shiftT > 0 || g < 1 || g > GEARS) return;
+    if (dir < 0 && (7500 * car.v * 3.6) / GEAR_TOP[g - 1] > REDLINE) return;
+    car.gear = g; car.shiftT = SHIFT_TIME;
+  }
+
+  // steerCmd in -1..1 (positive = left), thrCmd in -1..1 (negative = brake, 0 = coast), handCmd 0..1
+  move(car, steerCmd, thrCmd, dt, handCmd = 0) {
+    const cfg = this.cfg, T = this.track, N = T.n;
+    // The steering wheel turns wheelTurns each way and hands are only so fast,
+    // so more turns means finer control but slower lock to lock. Pedals and the
+    // handbrake lever take time to move too.
+    let d = steerCmd - car.steer, mx = (cfg.handSpeed / (cfg.wheelTurns * 360)) * dt;
     car.steer += d > mx ? mx : d < -mx ? -mx : d;
     d = thrCmd - car.thr; mx = PEDAL_RATE * dt;
     car.thr += d > mx ? mx : d < -mx ? -mx : d;
+    d = handCmd - car.hand; mx = 5 * dt;
+    car.hand += d > mx ? mx : d < -mx ? -mx : d;
+    if (car.shiftT > 0) car.shiftT -= dt;
 
     for (let k = 0; k < SUBSTEPS; k++) this.physics(car, dt / SUBSTEPS);
     car.v = Math.hypot(car.vx, car.vy);
-    const kmh = car.v * 3.6;
-    car.gear = gearFor(kmh) + 1;
-    car.rpm = revsAt(kmh, car.gear - 1);
+    // gearbox: is this the right gear? +1 = all the push the engine could give
+    // at this speed, 0 = half of it, -1 = none (bogged down or on the limiter)
+    const kmh = car.v * 3.6, watts = cfg.power * 745.7, cap = 1.15 * cfg.mass * 9.81;
+    const ideal = bestGear(kmh, watts, cap), bestF = Math.min(cap, thrust(ideal, kmh, watts));
+    const have = () => Math.min(cap, thrust(car.gear - 1, kmh, watts));
+    if (cfg.gearbox !== 'Manual' && ideal !== car.gear - 1 && car.shiftT <= 0 && bestF > have() * 1.04) { car.gear = ideal + 1; car.shiftT = SHIFT_TIME; }
+    car.rpm = Math.min(REDLINE + 300, revsAt(kmh, car.gear - 1));
+    car.gearOk = bestF > 0 ? (2 * have()) / bestF - 1 : 1;
+    car.gearSum += car.gearOk * dt;
+    // drift points: metres travelled sideways-ish, weighted by the slide angle
+    if (car.v > 8) { const beta = Math.abs(Math.atan2(car.vy, car.vx)); if (beta > 0.17) car.drift += Math.min(beta, 0.8) * car.v * dt; }
 
     // where are we along the track?
     let bestD = Infinity, bestJ = 0, bestU = 0, offX = 0, offZ = 0;
@@ -425,9 +519,14 @@ export class Sim {
 
   drive(car) {
     this.sense(car);
-    const o = car.brain.forward(car.inp);
+    const o = car.brain.forward(car.inp), cfg = this.cfg;
+    // one right foot: on the gas, on the brake, or lifted (coasting) in between
+    const p = o[1], pedal = p > 0.1 ? (p - 0.1) / 0.9 : p < -0.1 ? (p + 0.1) / 0.9 : 0;
+    let k = 2, hand = 0;
+    if (cfg.gearbox === 'Manual' && k < o.length) { const g = o[k++]; if (g > 0.5) this.shift(car, 1); else if (g < -0.5) this.shift(car, -1); }
+    if (cfg.handbrake && k < o.length) { const h = o[k++]; if (h > 0.3) hand = (h - 0.3) / 0.7; } // released unless pulled on purpose
     // speed-sensitive steering: the same wheel input turns the tyres less at speed
-    this.move(car, this.cfg.steerAssist ? o[0] / (1 + car.v / 16) : o[0], o[1], DT);
+    this.move(car, cfg.steerAssist ? o[0] / (1 + car.v / 16) : o[0], pedal, DT, hand);
     car.time += DT;
   }
 
@@ -447,10 +546,49 @@ export class Sim {
   //  - pace multiplies it: faster than half of par pace earns a bonus, slower costs points
   //  - finishing adds a full extra race distance, so finishers always beat non-finishers
   //    and among finishers the quickest time wins
+  //  - manual gearbox: time in the right gear multiplies the score up, the wrong gear down
+  //  - optional: points for drifting
   fitness(car) {
-    const dist = Math.max(0, car.prog) * this.track.segLen;
-    const speed = Math.max(0.2, 1 + this.cfg.speedWeight * (Math.min(1.6, this.pace(car)) - 0.5));
-    return dist * speed + (car.finished ? dist : 0);
+    const cfg = this.cfg, dist = Math.max(0, car.prog) * this.track.segLen;
+    const speed = Math.max(0.2, 1 + cfg.speedWeight * (Math.min(1.6, this.pace(car)) - 0.5));
+    const gear = cfg.gearbox === 'Manual' ? Math.max(0.1, 1 + cfg.gearWeight * this.gearScore(car)) : 1;
+    return (dist * speed + (car.finished ? dist : 0)) * gear + cfg.driftWeight * car.drift;
+  }
+
+  // Average right-gear score over the run so far: +1 always in the best gear, -1 always useless.
+  gearScore(car) { return car.time > 0 ? car.gearSum / car.time : 1; }
+
+  // The cars that can touch and see each other right now.
+  field() { return this.solo ? this.solo.all : this.cars; }
+
+  // Car-to-car contact: push overlapping cars apart and bounce their velocities
+  // along the line between them. Wrecks and finishers are ghosts.
+  collide(cars) {
+    const D = 2 * CAR_R;
+    for (let a = 0; a < cars.length; a++) {
+      const A = cars[a];
+      if (!A.alive) continue;
+      for (let b = a + 1; b < cars.length; b++) {
+        const B = cars[b];
+        if (!B.alive) continue;
+        const dx = B.x - A.x, dz = B.z - A.z;
+        if (dx > D || dx < -D || dz > D || dz < -D) continue;
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= D * D || d2 < 1e-6) continue;
+        const d = Math.sqrt(d2), nx = dx / d, nz = dz / d, push = (D - d) / 2;
+        A.x -= nx * push; A.z -= nz * push; B.x += nx * push; B.z += nz * push;
+        const sa = Math.sin(A.h), ca = Math.cos(A.h), sb = Math.sin(B.h), cb = Math.cos(B.h);
+        let ax = sa * A.vx + ca * A.vy, az = ca * A.vx - sa * A.vy; // world velocities
+        let bx = sb * B.vx + cb * B.vy, bz = cb * B.vx - sb * B.vy;
+        const rel = (bx - ax) * nx + (bz - az) * nz;
+        if (rel >= 0) continue; // already separating
+        const j = (-1.3 * rel) / 2;
+        ax -= j * nx; az -= j * nz; bx += j * nx; bz += j * nz;
+        A.vx = Math.max(0, ax * sa + az * ca); A.vy = ax * ca - az * sa;
+        B.vx = Math.max(0, bx * sb + bz * cb); B.vy = bx * cb - bz * sb;
+        A.hits++; B.hits++;
+      }
+    }
   }
 
   step() {
@@ -476,6 +614,7 @@ export class Sim {
         if (first || record) this.emit('milestone', first ? 'finish' : 'record', car);
       }
     }
+    if (cfg.collide) this.collide(this.cars);
     this.time += DT;
     if (this.alive === 0 || this.time >= cfg.timeLimit) this.evolve();
   }
@@ -499,6 +638,7 @@ export class Sim {
     this.history.push(stats);
     this.records.bestFitness = Math.max(this.records.bestFitness, stats.best);
     this.champion = ranked[0].brain;
+    this.top = ranked.slice(0, 20).map((c) => c.brain);
 
     const P = cfg.population, E = Math.min(cfg.elites, P, ranked.length);
     const pick = () => {
@@ -531,22 +671,42 @@ export class Sim {
     return best.brain;
   }
 
+  // The champion (on pole) plus, if "raceCars" > 1, the next-best brains of the
+  // last generation as rivals. With collisions on they can hit each other.
   startSolo() {
-    const car = this.makeCar(this.bestBrain().clone(), 0);
-    this.solo = { car, laps: [], lapStart: 0, top: 0, maxG: 0, done: false, ok: false };
+    const n = Math.max(1, this.cfg.raceCars | 0);
+    let pool = this.top;
+    if (!pool.length) pool = [...this.cars].sort((a, b) => b.prog - a.prog).map((c) => c.brain);
+    const brains = [this.bestBrain(), ...pool.filter((b) => b !== this.bestBrain())].slice(0, n);
+    const grid = brains.length > 1 || this.cfg.collide;
+    const all = brains.map((b, i) => this.makeCar(b.clone(), i, grid ? i : -1));
+    this.solo = { car: all[0], all, laps: [], lapStart: 0, top: 0, maxG: 0, done: false, ok: false, pos: 0 };
   }
 
   stopSolo() { this.solo = null; }
 
   stepSolo() {
-    const s = this.solo, car = s.car, N = this.track.n;
+    const s = this.solo, car = s.car, N = this.track.n, laps = this.cfg.lapsTarget;
     if (s.done) return;
+    // rivals first: same rules as in training, nobody is scored
+    for (let i = 1; i < s.all.length; i++) {
+      const r = s.all[i];
+      if (!r.alive) continue;
+      this.drive(r);
+      const out = (why) => { r.alive = false; r.why = why; r.vx = r.vy = r.r = r.v = 0; };
+      if (r.off) out('crashed');
+      else if (r.prog > r.bestProg + 0.25) { r.bestProg = r.prog; r.stall = 0; }
+      else if ((r.stall += DT) > 3) out('stalled');
+      if (r.alive && r.prog >= laps * N) { r.finished = true; out('finished'); }
+    }
     this.drive(car);
+    if (this.cfg.collide) this.collide(s.all);
     s.top = Math.max(s.top, car.v);
     s.maxG = Math.max(s.maxG, Math.hypot(car.ax, car.ay) / 9.81);
     const end = (why, ok) => {
       car.alive = false; car.why = why; car.finished = ok; car.vx = car.vy = car.r = car.v = 0;
       s.done = true; s.ok = ok;
+      s.pos = 1 + s.all.filter((r) => r !== car && r.finished).length; // rivals that got home first
       this.emit('soloEnd', s);
     };
     if (car.off) return end('crashed', false);
@@ -556,18 +716,19 @@ export class Sim {
       s.laps.push(car.time - s.lapStart);
       s.lapStart = car.time;
       this.emit('soloLap', s);
-      if (s.laps.length >= this.cfg.lapsTarget) end('finished', true);
+      if (s.laps.length >= laps) end('finished', true);
     }
   }
 
   // ---- drive-it-yourself car -------------------------------------------
   setHuman(on) { this.human = on ? this.makeCar(null, -1) : null; }
 
-  stepHuman(steer, thr) {
+  stepHuman(steer, thr, shift = 0, hand = 0) {
     const h = this.human;
     if (!h) return;
     this.sense(h);
-    this.move(h, steer / (1 + h.v / 16), thr, DT); // keyboard steering gets gentler with speed
+    if (shift && this.cfg.gearbox === 'Manual') this.shift(h, shift);
+    this.move(h, steer / (1 + h.v / 16), thr, DT, hand); // keyboard steering gets gentler with speed
     h.time += DT;
     if (h.off) { this.human = this.makeCar(null, -1); this.emit('humanCrash'); }
   }
