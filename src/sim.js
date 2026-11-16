@@ -22,6 +22,8 @@ export const defaults = {
   mutationRate: 0.12,
   mutationStrength: 0.25,
   crossover: true,
+  speedWeight: 1, // how much pace counts in the score (0 = only distance matters)
+  minPace: 0.4,     // cars slower than this fraction of par pace are eliminated
   timeLimit: 300,
   lapsTarget: 3,
   // brain
@@ -83,6 +85,37 @@ export class Sim {
     const c = this.cfg;
     this.track = buildTrack({ seed: c.trackSeed, points: c.trackPoints, twist: c.trackTwist, width: c.trackWidth, radius: c.trackSize, hills: c.trackHills });
     if (this.human) this.human = this.makeCar(null, -1);
+    this.updatePar();
+  }
+
+  // "Par": the lap time of an ideal driver who follows the centre line at the
+  // limit of grip, power and brakes of the current car. It is the yardstick the
+  // score uses to decide whether a car is fast or slow. (Cars can beat it by
+  // cutting corners on a proper racing line.)
+  updatePar() {
+    const c = this.cfg, T = this.track, N = T.n, ds = T.segLen, m = c.mass, g = c.gravity, mu = c.grip;
+    const v = new Float64Array(N), aero = (mu * 0.6 * c.downforce) / m, VMAX = 95;
+    for (let i = 0; i < N; i++) {
+      const den = Math.abs(T.curv[i]) - aero;
+      v[i] = den > 1e-4 ? Math.min(VMAX, Math.sqrt((mu * g) / den)) : VMAX; // cornering limit
+    }
+    const traction = mu * g * (c.drive === 'AWD' ? 1 : 0.55);
+    const braking = Math.min(c.brake * 9.81, mu * g);
+    for (let pass = 0; pass < 3; pass++) {
+      for (let i = 0; i < N; i++) { // accelerate out of corners
+        const j = (i + 1) % N;
+        const a = Math.min(traction, (c.power * 745.7) / m / Math.max(v[i], 4)) - (0.372 * v[i] * v[i]) / m - g * T.slope[i];
+        v[j] = Math.min(v[j], Math.sqrt(Math.max(9, v[i] * v[i] + 2 * a * ds)));
+      }
+      for (let i = N - 1; i >= 0; i--) { // brake in time for the next one
+        const j = (i + 1) % N;
+        const b = braking + (0.372 * v[j] * v[j]) / m + g * T.slope[i];
+        v[i] = Math.min(v[i], Math.sqrt(v[j] * v[j] + 2 * Math.max(1, b) * ds));
+      }
+    }
+    let t = 0;
+    for (let i = 0; i < N; i++) t += ds / v[i];
+    this.par = { lap: t, total: t * c.lapsTarget, pace: T.length / t };
   }
 
   // Throw away all learning and start from random brains (or from a seed brain).
@@ -107,6 +140,7 @@ export class Sim {
   }
 
   spawn(brains) {
+    this.updatePar(); // car settings may have changed since the last generation
     this.cars = brains.map((b, i) => this.makeCar(b, i));
     this.time = 0;
     this.alive = this.cars.length;
@@ -284,22 +318,34 @@ export class Sim {
     this.alive--;
   }
 
-  // The score evolution tries to maximise: distance driven, plus a speed bonus for finishing.
+  // How fast a car is going compared with par: 1 = ideal centre-line pace.
+  pace(car) {
+    return car.time > 0 ? (Math.max(0, car.prog) * this.track.segLen) / car.time / this.par.pace : 0;
+  }
+
+  // The score evolution tries to maximise. It is a time attack:
+  //  - distance is the base (you have to stay on the road to score at all)
+  //  - pace multiplies it: faster than half of par pace earns a bonus, slower costs points
+  //  - finishing adds a full extra race distance, so finishers always beat non-finishers
+  //    and among finishers the quickest time wins
   fitness(car) {
     const dist = Math.max(0, car.prog) * this.track.segLen;
-    if (!car.finished) return dist;
-    return dist * (1 + (2 * dist) / car.time / 50);
+    const speed = Math.max(0.2, 1 + this.cfg.speedWeight * (Math.min(1.6, this.pace(car)) - 0.5));
+    return dist * speed + (car.finished ? dist : 0);
   }
 
   step() {
     if (this.solo) return this.stepSolo();
-    const cfg = this.cfg, N = this.track.n;
+    const cfg = this.cfg, N = this.track.n, segLen = this.track.segLen;
+    const minSpeed = cfg.minPace * this.par.pace;
     for (const car of this.cars) {
       if (!car.alive) continue;
       this.drive(car);
       if (car.off) { this.kill(car, 'crashed'); continue; }
       if (car.prog > car.bestProg + 0.25) { car.bestProg = car.prog; car.stall = 0; }
       else if ((car.stall += DT) > 3) { this.kill(car, 'stalled'); continue; }
+      // the clock is running: fall too far behind the minimum pace and you are out
+      if (car.time > 8 && car.prog * segLen < minSpeed * (car.time - 8)) { this.kill(car, 'too slow'); continue; }
       if (!this.records.lap && car.prog >= N) { this.records.lap = true; this.emit('milestone', 'lap', car); }
       if (car.prog >= cfg.lapsTarget * N) {
         car.finished = true;
@@ -329,6 +375,7 @@ export class Sim {
       laps: Math.min(cfg.lapsTarget, Math.max(0, Math.floor(ranked.reduce((m, c) => Math.max(m, c.prog), 0) / N))),
       finished: ranked.filter((c) => c.finished).length,
       bestTime: ranked.reduce((m, c) => (c.finished ? Math.min(m, c.time) : m), Infinity),
+      par: this.par.total,
     };
     this.history.push(stats);
     this.records.bestFitness = Math.max(this.records.bestFitness, stats.best);

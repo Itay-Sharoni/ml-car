@@ -12,6 +12,8 @@ export const SCHEMA = [
       { key: 'mutationRate', label: 'Mutation rate', min: 0, max: 0.6, step: 0.01, kind: 'next', hint: 'Chance that each connection in a child brain gets randomly nudged.' },
       { key: 'mutationStrength', label: 'Mutation strength', min: 0.02, max: 1.5, step: 0.01, kind: 'next', hint: 'How big each nudge is. Big = wild exploration. Small = careful fine-tuning.' },
       { key: 'crossover', label: 'Crossover (two parents)', type: 'toggle', kind: 'next', hint: 'Children mix the weights of two parents instead of cloning one.' },
+      { key: 'speedWeight', label: 'Speed reward', min: 0, max: 3, step: 0.1, kind: 'next', hint: 'How much pace counts in the score. 0 = only distance matters, so slow and safe wins. Higher pushes cars to be fast, at the price of more crashes.' },
+      { key: 'minPace', label: 'Minimum pace', pct: true, min: 0, max: 0.9, step: 0.05, kind: 'live', zero: 'off', hint: 'Cars that fall behind this share of par pace are eliminated for being too slow.' },
       { key: 'lapsTarget', label: 'Laps to finish', min: 1, max: 10, step: 1, kind: 'live', hint: 'How many laps count as finishing the race.' },
       { key: 'timeLimit', label: 'Time limit', unit: 's', min: 30, max: 600, step: 10, kind: 'live', hint: 'A generation ends when every car has crashed or finished, or after this long.' },
     ],
@@ -72,6 +74,11 @@ export function gearInfo(v) {
   let g = 0;
   while (g < GEAR_TOP.length - 1 && kmh > GEAR_TOP[g] * 0.92) g++;
   return { kmh, gear: g + 1, rpm: Math.max(900, Math.min(7800, (7500 * kmh) / GEAR_TOP[g])) };
+}
+
+// gap to par: negative (faster than par) is good
+export function fmtGap(d) {
+  return (d < 0 ? '−' : '+') + Math.abs(d).toFixed(1) + 's';
 }
 
 export function fmtTime(t) {
@@ -143,7 +150,7 @@ export class UI {
           el.innerHTML = `<div class="ctl-row"><label>${it.label}${tag}</label><output></output></div><input type="range" min="${it.min}" max="${it.max}" step="${it.step}"><small>${it.hint}</small>`;
           const inp = el.querySelector('input'), out = el.querySelector('output');
           const dec = (String(it.step).split('.')[1] || '').length;
-          const show = () => { const v = obj[it.key]; out.textContent = v === 0 && it.zero ? it.zero : Number(v).toFixed(dec) + (it.unit || ''); };
+          const show = () => { const v = obj[it.key]; out.textContent = v === 0 && it.zero ? it.zero : it.pct ? Math.round(v * 100) + '%' : Number(v).toFixed(dec) + (it.unit || ''); };
           inp.value = obj[it.key]; show();
           inp.oninput = () => { obj[it.key] = Number(inp.value); show(); };
           inp.onchange = () => this.onChange(it); // structural changes apply on release
@@ -164,10 +171,13 @@ export class UI {
     $('sGen').textContent = sim.gen;
     $('sAlive').textContent = mode === 'solo' ? '1' : `${sim.alive}/${sim.cars.length}`;
     $('sFin').textContent = last ? `${last.finished}/${cfg.population}` : '—';
-    $('sTime').textContent = fmtTime(mode === 'solo' ? sim.solo.car.time : sim.time);
     $('sBestTime').textContent = fmtTime(sim.records.bestTime);
     $('sBestTime').nextElementSibling.textContent = `Best ${cfg.lapsTarget}-lap time`;
-    $('sBestFit').textContent = Math.round(sim.records.bestFitness);
+    $('sPar').textContent = fmtTime(sim.par.total);
+    $('sPar').nextElementSibling.textContent = `Par ${cfg.lapsTarget}-lap time`;
+    const gap = sim.records.bestTime - sim.par.total;
+    $('sGap').textContent = isFinite(gap) ? fmtGap(gap) : '—';
+    $('sGap').style.color = !isFinite(gap) ? '' : gap <= 0 ? '#5fd38d' : gap < sim.par.total * 0.15 ? css('--gold') : '#ff7a6b';
 
     const laps = cfg.lapsTarget;
     if (this.pipCount !== laps) {
@@ -180,7 +190,7 @@ export class UI {
     $('lapSub').textContent =
       mode === 'drive' ? 'You are driving — arrows or WASD'
       : mode === 'solo' ? `Champion run · ${fmtTime(car.time)}`
-      : car && !car.alive ? `Leader ${car.why}` : `Leader · ${fmtTime(car ? car.time : 0)}`;
+      : car && !car.alive ? `Leader ${car.why}` : `Leader · ${fmtTime(car ? car.time : 0)} · ${car ? Math.round(sim.pace(car) * 100) : 0}% of par pace`;
     [...$('pips').children].forEach((el, i) => (el.firstChild.style.width = Math.max(0, Math.min(1, p - i)) * 100 + '%'));
   }
 
@@ -278,6 +288,7 @@ export class UI {
   }
 
   drawChart(history) {
+    this.drawTimes(history);
     const { ctx, w, h } = fit($('chart'));
     const pl = 34, pr = 6, pt = 8, pb = 16;
     ctx.font = '10px ui-sans-serif, system-ui'; ctx.fillStyle = '#98a2b3'; ctx.textBaseline = 'middle';
@@ -301,6 +312,36 @@ export class UI {
     line('avg', css('--acc2')); line('best', css('--acc'));
     ctx.fillStyle = css('--gold');
     history.forEach((s, i) => { if (s.finished) { ctx.beginPath(); ctx.arc(X(i), Y(s.best), 2.6, 0, 6.3); ctx.fill(); } });
+  }
+
+  // Best finishing time per generation against par. This is the time attack: lower is better.
+  drawTimes(history) {
+    const { ctx, w, h } = fit($('times'));
+    const pl = 34, pr = 6, pt = 8, pb = 16;
+    ctx.font = '10px ui-sans-serif, system-ui'; ctx.fillStyle = '#98a2b3'; ctx.textBaseline = 'middle';
+    const done = history.filter((s) => isFinite(s.bestTime));
+    if (!done.length) { ctx.textAlign = 'center'; ctx.fillText('No car has finished the race yet', w / 2, h / 2); return; }
+    const par = history[history.length - 1].par, n = history.length;
+    const lo = Math.min(par, ...done.map((s) => s.bestTime)) * 0.96, hi = Math.max(par, ...done.map((s) => s.bestTime)) * 1.04;
+    const X = (i) => pl + (n === 1 ? 0.5 : i / (n - 1)) * (w - pl - pr), Y = (v) => pt + ((hi - v) / (hi - lo)) * (h - pt - pb);
+    ctx.textAlign = 'right';
+    ctx.fillText(fmtTime(hi).slice(0, -2), pl - 5, Y(hi) + 4); ctx.fillText(fmtTime(lo).slice(0, -2), pl - 5, Y(lo) - 2);
+    ctx.textAlign = 'left'; ctx.fillText('gen 1', pl, h - 6);
+    ctx.textAlign = 'right'; ctx.fillText('gen ' + history[n - 1].gen, w - pr, h - 6);
+    // par line
+    ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(pl, Y(par)); ctx.lineTo(w - pr, Y(par)); ctx.stroke(); ctx.setLineDash([]);
+    // best time: only generations where somebody finished
+    ctx.strokeStyle = ctx.fillStyle = css('--gold'); ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    let pen = false;
+    history.forEach((s, i) => {
+      if (!isFinite(s.bestTime)) { pen = false; return; }
+      if (pen) ctx.lineTo(X(i), Y(s.bestTime)); else ctx.moveTo(X(i), Y(s.bestTime));
+      pen = true;
+    });
+    ctx.stroke();
+    history.forEach((s, i) => { if (isFinite(s.bestTime)) { ctx.beginPath(); ctx.arc(X(i), Y(s.bestTime), 2.2, 0, 6.3); ctx.fill(); } });
   }
 
   drawMap(sim, cars, focus) {

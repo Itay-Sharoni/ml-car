@@ -1,7 +1,7 @@
 import { Sim, defaults, DT, brainSizes } from './sim.js';
 import { Brain } from './brain.js';
 import { World } from './world.js';
-import { UI, gearInfo, fmtTime } from './ui.js';
+import { UI, gearInfo, fmtTime, fmtGap } from './ui.js';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'mlcar.champion.v2';
@@ -27,6 +27,8 @@ function onChange(item) {
     ui.toast('Brain shape changed — learning restarted');
   } else if (item.kind === 'track') {
     newTrack(cfg.trackSeed);
+  } else {
+    sim.updatePar(); // car or race settings changed: the ideal time changes with them
   }
 }
 
@@ -71,10 +73,10 @@ sim.on('track', () => { world.setTrack(sim.track); ui.toast('New road generated'
 sim.on('milestone', (kind, car) => {
   if (kind === 'lap') ui.toast(`Generation ${sim.gen}: first full lap!`);
   if (kind === 'finish') {
-    ui.toast(`Generation ${sim.gen}: ${cfg.lapsTarget} laps finished in ${fmtTime(car.time)} — try "Run champion"`, true);
+    ui.toast(`Generation ${sim.gen}: ${cfg.lapsTarget} laps finished in ${fmtTime(car.time)} (par ${fmtTime(sim.par.total)}). Now make it faster!`, true);
     ui.confetti();
   }
-  if (kind === 'record') ui.toast(`New record: ${fmtTime(car.time)} (generation ${sim.gen})`);
+  if (kind === 'record') ui.toast(`New record: ${fmtTime(car.time)}, ${fmtGap(car.time - sim.par.total)} vs par (generation ${sim.gen})`);
 });
 sim.on('humanCrash', () => ui.toast('You left the road — back to the start line'));
 
@@ -86,7 +88,7 @@ function renderSolo() {
   $('soloLaps').innerHTML = s.laps.map((t, i) => `<div class="${s.laps.length > 1 && t === best ? 'best' : ''}"><b>LAP ${i + 1}</b>${fmtTime(t)}</div>`).join('');
   $('soloState').textContent = s.done ? '' : `· generation ${sim.gen} brain`;
   if (!s.done) $('soloRes').textContent = s.laps.length ? '' : 'One car. The best brain so far. No second chances.';
-  else if (s.ok) $('soloRes').innerHTML = `<b>${fmtTime(s.car.time)}</b> &nbsp;·&nbsp; top speed ${Math.round(s.top * 3.6)} km/h &nbsp;·&nbsp; peak ${s.maxG.toFixed(1)} g`;
+  else if (s.ok) $('soloRes').innerHTML = `<b>${fmtTime(s.car.time)}</b> &nbsp;·&nbsp; ${fmtGap(s.car.time - sim.par.total)} vs par &nbsp;·&nbsp; top speed ${Math.round(s.top * 3.6)} km/h &nbsp;·&nbsp; peak ${s.maxG.toFixed(1)} g`;
   else $('soloRes').innerHTML = `${s.car.why === 'crashed' ? 'Crashed' : 'Stalled'} on lap ${s.laps.length + 1} after ${fmtTime(s.car.time)}. It needs more training.`;
 }
 

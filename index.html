@@ -13,7 +13,7 @@
   <!-- left: every tunable -->
   <aside class="panel left" id="left">
     <header class="brand">
-      <div class="logo">ML<span>·</span>CAR <small>v1.2</small></div>
+      <div class="logo">ML<span>·</span>CAR <small>v1.3</small></div>
       <p>Cars with tiny neural-network brains learn to drive by evolution. Tune anything, any time.</p>
     </header>
     <div id="controls"></div>
@@ -32,9 +32,9 @@
       <div class="stat"><b id="sGen">1</b><span>Generation</span></div>
       <div class="stat"><b id="sAlive">0</b><span>Cars alive</span></div>
       <div class="stat"><b id="sFin">—</b><span>Finished last gen</span></div>
-      <div class="stat"><b id="sTime">0:00.0</b><span>Gen time</span></div>
+      <div class="stat"><b id="sPar">—</b><span>Par 3-lap time</span></div>
       <div class="stat"><b id="sBestTime">—</b><span>Best 3-lap time</span></div>
-      <div class="stat"><b id="sBestFit">0</b><span>Best distance score</span></div>
+      <div class="stat"><b id="sGap">—</b><span>Best vs par</span></div>
     </div>
 
     <section class="card">
@@ -44,7 +44,7 @@
 
     <section class="card">
       <h3>Brain <small>live</small></h3>
-      <canvas id="net" class="viz" style="height:215px"></canvas>
+      <canvas id="net" class="viz" style="height:200px"></canvas>
       <p class="hint">Left: what the car senses. Right: what it decides. <i class="dot pos"></i> positive signal <i class="dot neg"></i> negative signal</p>
     </section>
 
@@ -52,6 +52,12 @@
       <h3>Learning curve <small>score per generation</small></h3>
       <canvas id="chart" class="viz" style="height:130px"></canvas>
       <p class="hint"><i class="dot pos"></i> best car <i class="dot neg"></i> population average <i class="dot fin"></i> finished all laps</p>
+    </section>
+
+    <section class="card">
+      <h3>Race time <small>best finisher per generation</small></h3>
+      <canvas id="times" class="viz" style="height:100px"></canvas>
+      <p class="hint">Lower is better. <i class="dot fin"></i> best time <i class="dot dash"></i> par: an ideal driver on the centre line</p>
     </section>
 
     <section class="card">
@@ -103,7 +109,7 @@
         <li><b>Sense</b><span>Each car shoots distance rays at the road edges. Those distances, plus its speed, slide and spin, are all it knows.</span></li>
         <li><b>Think</b><span>The numbers flow through the neural network and come out as two decisions: steering wheel and gas/brake pedal.</span></li>
         <li><b>Try</b><span>A whole population drives at once, each with a slightly different brain. Generation 1 is pure random chaos.</span></li>
-        <li><b>Score</b><span>The farther a car gets (and the faster it finishes), the higher its fitness score.</span></li>
+        <li><b>Score</b><span>It is a time attack. Distance earns points, pace multiplies them, and the quickest finisher wins. Dawdle and you are eliminated.</span></li>
         <li><b>Evolve</b><span>The best brains survive, get mixed together and randomly mutated to make the next generation. Repeat.</span></li>
       </ol>
       <h2>Experiments to try</h2>

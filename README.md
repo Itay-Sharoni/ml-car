@@ -26,8 +26,19 @@ Then open the URL it prints (normally http://localhost:5173).
 1. **Sense** – each car casts distance rays to the road edges. Those distances plus its speed, sideways slide and spin are the network's inputs.
 2. **Think** – the network outputs steering wheel and gas/brake pedal positions.
 3. **Try** – a whole population drives at once, each with a different brain.
-4. **Score** – fitness is distance driven, with a bonus for finishing fast.
+4. **Score** – a time attack: distance earns points, pace multiplies them, finishing adds a bonus, and cars that are too slow are eliminated (see below).
 5. **Evolve** – the best brains are kept, crossed over and mutated into the next generation.
+
+## Scoring: racing the clock
+
+Every circuit has a **par time**: what an ideal driver would do following the centre line at the limit of the current car's grip, power and brakes. Par is the yardstick for "fast" and "slow".
+
+- **Distance is the base.** A car must stay on the road to score at all.
+- **Pace multiplies it.** Faster than half of par pace earns a bonus, slower costs points. The "Speed reward" slider sets how strongly.
+- **Finishing adds a full extra race distance**, so finishers always outrank non-finishers, and among finishers the quickest time wins.
+- **Too slow means out.** Cars that fall behind the "Minimum pace" (40% of par by default) are eliminated.
+
+The UI shows par, the best time, the gap between them, the leader's live pace as a percentage of par, and a chart of the best race time per generation. Cars can beat par by cutting corners on a proper racing line.
 
 ## The car
 
