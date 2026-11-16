@@ -401,8 +401,13 @@ export class Sim {
 
     // engine through the gearbox, engine braking when off the gas, brakes
     let Fxf = 0, Fxr = 0, Fd = 0;
-    const gi = car.gear - 1;
-    if (car.thr > 0) {
+    const gi = car.gear - 1, over = (7500 * car.vx * 3.6) / GEAR_TOP[gi] - REDLINE;
+    if (over > 0) {
+      // Past the red line the wheels are driving the engine, not the other way
+      // round. Whatever the pedal is doing, the engine holds the car back, harder
+      // the further over it is, so no gear can run faster than its top speed.
+      Fd = -m * 9.81 * Math.min(1, over / 300);
+    } else if (car.thr > 0) {
       if (car.shiftT <= SHIFT_TIME - SHIFT_CUT) Fd = car.thr * Math.min(1.15 * m * 9.81, thrust(gi, car.vx * 3.6, c.power * 745.7));
     } else if (car.vx > 2) {
       Fd = -0.12 * m * 9.81 * (GEAR_TOP[0] / GEAR_TOP[gi]) * Math.min(1, car.rpm / REDLINE); // strongest in a low gear at high revs

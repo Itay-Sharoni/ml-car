@@ -13,7 +13,7 @@ export const SCHEMA = [
       { key: 'mutationStrength', label: 'Mutation strength', min: 0.02, max: 1.5, step: 0.01, kind: 'next', hint: 'How big each nudge is. Big = wild exploration. Small = careful fine-tuning.' },
       { key: 'crossover', label: 'Crossover (two parents)', type: 'toggle', kind: 'next', hint: 'Children mix the weights of two parents instead of cloning one.' },
       { key: 'speedWeight', label: 'Speed reward', min: 0, max: 3, step: 0.1, kind: 'next', hint: 'How much pace counts in the score. 0 = only distance matters, so slow and safe wins. Higher pushes cars to be fast, at the price of more crashes.' },
-      { key: 'gearWeight', label: 'Gear reward', min: 0, max: 1, step: 0.05, kind: 'next', hint: 'Manual gearbox only. Time spent in the right gear multiplies the score up, the wrong gear (engine bogged down or bouncing off the limiter) multiplies it down. 0 = no gear points: only the lap time tells them.' },
+      { key: 'gearWeight', label: 'Gear reward', min: 0, max: 1, step: 0.05, kind: 'next', hint: 'Manual gearbox only. Revs, speed and gear are locked together, and the engine pulls hardest between about 4500 and 7400 rpm (the green line under the rev bar). Time spent in the gear that keeps the revs there multiplies the score up; a wrong gear (bogged down, or on the limiter) multiplies it down. 0 = no gear points.' },
       { key: 'driftWeight', label: 'Drift reward', min: 0, max: 5, step: 0.1, kind: 'next', zero: 'off', hint: 'Points for sliding sideways at speed. Off by default: sliding is slow. Turn it up and evolution starts showing off.' },
       { key: 'minPace', label: 'Minimum pace', pct: true, min: 0, max: 0.9, step: 0.05, kind: 'live', zero: 'off', hint: 'Cars that fall behind this share of par pace are eliminated for being too slow.' },
       { key: 'lapsTarget', label: 'Laps to finish', min: 1, max: 10, step: 1, kind: 'live', hint: 'How many laps count as finishing the race.' },
@@ -233,6 +233,9 @@ export class UI {
       ctx.fillStyle = on ? (i >= segs - 4 ? '#ff4d4d' : i >= segs - 9 ? css('--gold') : '#5fd38d') : 'rgba(255,255,255,.1)';
       ctx.fillRect(8 + i * bw, 4, bw - 2, 7);
     }
+    // the good rev range: where the engine pulls hardest (about 4500 to 7400 rpm)
+    ctx.fillStyle = 'rgba(95,211,141,.75)';
+    ctx.fillRect(8 + (4500 / 7800) * (w - 16), 13, ((7400 - 4500) / 7800) * (w - 16), 2);
     // speed + gear
     ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
     ctx.fillStyle = text; ctx.font = '800 34px ui-sans-serif, system-ui';

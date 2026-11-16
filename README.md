@@ -41,7 +41,7 @@ The brain is a small feed-forward neural network (a multilayer perceptron with t
 | Pedal | One right foot: on the gas, on the brake, or lifted in between (coasting, with engine braking). |
 | Gear shift | Manual gearbox: shift up or down one gear, like paddles. A shift briefly cuts the drive, and the gearbox refuses a downshift that would over-rev. Switch to Auto to take it away from the brain. |
 
-Gears have consequences. First gear runs out of revs at about 62 km/h. Hold the engine on the rev limiter for more than 2.5 s and it blows up: the car is out. Only first gear can pull away from rest; in a gear that is too high for the speed the engine bogs down and loses most of its push.
+Gears have consequences. Revs, road speed and gear are locked together, and past the red line the engine holds the car back whatever the pedal is doing, so no gear can run faster than its top speed: 62, 104, 151, 203, 265 and 354 km/h. First gear runs out of revs at about 62 km/h. Hold the engine on the rev limiter for more than 2.5 s and it blows up: the car is out. Only first gear can pull away from rest; in a gear that is too high for the speed the engine bogs down and loses most of its push.
 
 | | |
 | --- | --- |
