@@ -40,6 +40,11 @@ The brain is a small feed-forward neural network (a multilayer perceptron with t
 | Steering wheel | 1.5 turns from centre to full lock, and hands can only turn it so fast (900°/s). Both are tunable. |
 | Pedal | One right foot: on the gas, on the brake, or lifted in between (coasting, with engine braking). |
 | Gear shift | Manual gearbox: shift up or down one gear, like paddles. A shift briefly cuts the drive, and the gearbox refuses a downshift that would over-rev. Switch to Auto to take it away from the brain. |
+
+Gears have consequences. First gear runs out of revs at about 62 km/h. Hold the engine on the rev limiter for more than 2.5 s and it blows up: the car is out. Only first gear can pull away from rest; in a gear that is too high for the speed the engine bogs down and loses most of its push.
+
+| | |
+| --- | --- |
 | Handbrake | As hard as the brain likes. Rear wheels only, no ABS: pull hard and the rears lock and the tail steps out. |
 
 ## What the driver senses

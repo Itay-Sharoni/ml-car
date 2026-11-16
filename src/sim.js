@@ -19,7 +19,10 @@ const LOOK_NEAR = 40, LOOK_FAR = 100; // how far ahead (m) the driver reads the 
 // revs, so power peaks near 6700 rpm. In each gear the push at the wheels is
 // torque x gear ratio: a low gear pushes hard but runs out of revs, a high gear
 // is weak at low speed. Being in the wrong gear costs real acceleration.
-const GEAR_TOP = [70, 110, 155, 200, 250, 340]; // km/h at 7500 rpm in each gear
+// Gears have consequences: first runs out of revs at about 62 km/h, holding the
+// engine on the rev limiter blows it up, and a gear that is too high for the
+// speed bogs the engine down until it has almost no push at all.
+const GEAR_TOP = [60, 100, 145, 195, 255, 340]; // km/h at 7500 rpm in each gear
 export const GEARS = GEAR_TOP.length;
 export const REDLINE = 7800, IDLE = 900;
 const SHIFT_TIME = 0.25, SHIFT_CUT = 0.1; // a shift takes this long; the engine is disconnected for the first part
@@ -29,8 +32,12 @@ for (let r = IDLE; r <= REDLINE; r += 50) TQ_PEAK = Math.max(TQ_PEAK, torqueAt(r
 const revsAt = (kmh, g) => Math.max(IDLE, (7500 * kmh) / GEAR_TOP[g]); // below idle the clutch slips
 // Push at the driven wheels (N) at full throttle in gear g (0-based). Zero on the rev limiter.
 function thrust(g, kmh, watts) {
-  const rpm = revsAt(kmh, g);
-  return rpm > REDLINE ? 0 : (watts * torqueAt(rpm) * (27000 / GEAR_TOP[g])) / TQ_PEAK;
+  const raw = (7500 * kmh) / GEAR_TOP[g], rpm = raw < IDLE ? IDLE : raw;
+  if (rpm > REDLINE) return 0;
+  // Lugging: only first gear can pull away from rest (the clutch slips). In a
+  // higher gear the engine bogs below about 2000 rpm and loses most of its push.
+  const lug = g === 0 || raw >= 2000 ? 1 : Math.max(0.3, (raw - 500) / 1500);
+  return (watts * torqueAt(rpm) * (27000 / GEAR_TOP[g]) * lug) / TQ_PEAK;
 }
 // The gear with the most usable push at this speed (ties go to the lower gear).
 function bestGear(kmh, watts, cap) {
@@ -121,6 +128,7 @@ export const defaults = {
   // driver's controls
   gearbox: 'Manual', // 'Manual': the brain shifts gears itself. 'Auto': the car does it.
   handbrake: true,   // the brain can pull the handbrake, as hard as it likes
+  revLimit: 2.5,     // seconds the engine survives on the rev limiter before it blows (0 = unbreakable)
   wheelTurns: 1.5,   // steering wheel turns from centre to full lock
   handSpeed: 900,    // how fast the driver can turn the wheel, degrees per second
   // brain
@@ -303,6 +311,7 @@ export class Sim {
       vx: 0, vy: 0, r: 0, v: 0, ax: 0, ay: 0,   // body-frame velocity, yaw rate, speed, accelerations
       gz: this.cfg.gravity / G0, af: 0, ar: 0,  // vertical g, front and rear tyre slip angles
       gear: 1, rpm: IDLE, shiftT: 0, grade: 0,  // gearbox, slope under the car
+      heat: 0,                                  // seconds of engine abuse on the rev limiter
       gearOk: 1, gearSum: 0, drift: 0, hits: 0, // right-gear score (now and summed), drift points, contacts
       steer: 0, thr: 0, hand: 0, slip: false,   // steering wheel, pedal (+gas / -brake), handbrake
       seg: i, segAbs: 0, prog: 0, bestProg: 0, stall: 0, lat: 0, side: 0, yawErr: 0, off: false,
@@ -485,6 +494,8 @@ export class Sim {
     const have = () => Math.min(cap, thrust(car.gear - 1, kmh, watts));
     if (cfg.gearbox !== 'Manual' && ideal !== car.gear - 1 && car.shiftT <= 0 && bestF > have() * 1.04) { car.gear = ideal + 1; car.shiftT = SHIFT_TIME; }
     car.rpm = Math.min(REDLINE + 300, revsAt(kmh, car.gear - 1));
+    // bouncing off the rev limiter cooks the engine; it recovers at half the rate
+    car.heat = car.rpm >= REDLINE - 150 ? car.heat + dt : Math.max(0, car.heat - dt / 2);
     car.gearOk = bestF > 0 ? (2 * have()) / bestF - 1 : 1;
     car.gearSum += car.gearOk * dt;
     // drift points: metres travelled sideways-ish, weighted by the slide angle
@@ -599,6 +610,7 @@ export class Sim {
       if (!car.alive) continue;
       this.drive(car);
       if (car.off) { this.kill(car, 'crashed'); continue; }
+      if (cfg.revLimit > 0 && car.heat > cfg.revLimit) { this.kill(car, 'blew its engine'); continue; }
       if (car.prog > car.bestProg + 0.25) { car.bestProg = car.prog; car.stall = 0; }
       else if ((car.stall += DT) > 3) { this.kill(car, 'stalled'); continue; }
       // the clock is running: fall too far behind the minimum pace and you are out
@@ -695,6 +707,7 @@ export class Sim {
       this.drive(r);
       const out = (why) => { r.alive = false; r.why = why; r.vx = r.vy = r.r = r.v = 0; };
       if (r.off) out('crashed');
+      else if (this.cfg.revLimit > 0 && r.heat > this.cfg.revLimit) out('blew its engine');
       else if (r.prog > r.bestProg + 0.25) { r.bestProg = r.prog; r.stall = 0; }
       else if ((r.stall += DT) > 3) out('stalled');
       if (r.alive && r.prog >= laps * N) { r.finished = true; out('finished'); }
@@ -710,6 +723,7 @@ export class Sim {
       this.emit('soloEnd', s);
     };
     if (car.off) return end('crashed', false);
+    if (this.cfg.revLimit > 0 && car.heat > this.cfg.revLimit) return end('blew its engine', false);
     if (car.prog > car.bestProg + 0.25) { car.bestProg = car.prog; car.stall = 0; }
     else if ((car.stall += DT) > 3) return end('stalled', false);
     if (Math.floor(car.prog / N) > s.laps.length) {
@@ -730,6 +744,7 @@ export class Sim {
     if (shift && this.cfg.gearbox === 'Manual') this.shift(h, shift);
     this.move(h, steer / (1 + h.v / 16), thr, DT, hand); // keyboard steering gets gentler with speed
     h.time += DT;
-    if (h.off) { this.human = this.makeCar(null, -1); this.emit('humanCrash'); }
+    const blown = this.cfg.revLimit > 0 && h.heat > this.cfg.revLimit;
+    if (h.off || blown) { this.human = this.makeCar(null, -1); this.emit('humanCrash', blown ? 'engine' : 'road'); }
   }
 }

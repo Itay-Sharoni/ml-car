@@ -32,6 +32,7 @@ export const SCHEMA = [
     items: [
       { key: 'gearbox', label: 'Gearbox', type: 'select', options: ['Manual', 'Auto'], kind: 'reset', hint: 'Manual: the brain shifts up and down itself, like paddle shifters, and has to learn when. Auto: the car always picks the best gear.' },
       { key: 'handbrake', label: 'Handbrake', type: 'toggle', kind: 'reset', hint: 'The brain can pull the handbrake as hard as it likes. It brakes only the rear wheels: pull hard and they lock, the tail steps out and the car drifts.' },
+      { key: 'revLimit', label: 'Engine survives the limiter for', unit: ' s', min: 0, max: 10, step: 0.5, kind: 'live', zero: 'forever', hint: 'Hold the engine on the rev limiter longer than this and it blows up: the car is out. This is what stops a car from screaming round the whole lap in first gear.' },
       { key: 'wheelTurns', label: 'Steering wheel turns', unit: ' turns', min: 0.5, max: 2.5, step: 0.25, kind: 'live', hint: 'Turns of the wheel from centre to full lock. 1.5 is a road car. More turns = finer control but slower from lock to lock.' },
       { key: 'handSpeed', label: 'Hand speed', unit: '°/s', min: 200, max: 2000, step: 50, kind: 'live', hint: 'How fast the driver can spin the steering wheel. A quick racing driver manages about 900° per second.' },
     ],
@@ -238,7 +239,9 @@ export class UI {
     ctx.fillText(Math.round(kmh), 8, 56);
     ctx.fillStyle = mute; ctx.font = '10px ui-sans-serif, system-ui';
     ctx.fillText('km/h', 8, 70);
-    ctx.fillText('GEAR', 96, 32);
+    const over = rpm >= 7650; // on the rev limiter
+    if (over) ctx.fillStyle = '#ff4d4d';
+    ctx.fillText(over ? 'SHIFT UP!' : 'GEAR', 96, 32);
     // the gear number goes green in the right gear and red in the wrong one
     ctx.fillStyle = car.gearOk > 0.8 ? '#5fd38d' : car.gearOk > 0.3 ? css('--gold') : '#ff4d4d';
     ctx.font = '800 26px ui-sans-serif, system-ui';

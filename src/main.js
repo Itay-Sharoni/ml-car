@@ -82,7 +82,7 @@ sim.on('milestone', (kind, car) => {
   }
   if (kind === 'record') ui.toast(`New record: ${fmtTime(car.time)}, ${fmtGap(car.time - sim.par.total)} vs par (generation ${sim.gen})`);
 });
-sim.on('humanCrash', () => ui.toast('You left the road — back to the start line'));
+sim.on('humanCrash', (why) => ui.toast(why === 'engine' ? 'You blew the engine on the rev limiter — shift up with E' : 'You left the road — back to the start line'));
 
 // ---- champion solo run --------------------------------------------------------
 function renderSolo() {
@@ -93,7 +93,7 @@ function renderSolo() {
   $('soloState').textContent = s.done ? '' : `· generation ${sim.gen} brain`;
   if (!s.done) $('soloRes').textContent = s.laps.length ? '' : s.all.length > 1 ? `The champion on pole against the next ${s.all.length - 1} best brains.` : 'One car. The best brain so far. No second chances.';
   else if (s.ok) $('soloRes').innerHTML = `<b>${fmtTime(s.car.time)}</b>${s.all.length > 1 ? ` &nbsp;·&nbsp; P${s.pos} of ${s.all.length}` : ''} &nbsp;·&nbsp; ${fmtGap(s.car.time - sim.par.total)} vs par &nbsp;·&nbsp; top speed ${Math.round(s.top * 3.6)} km/h &nbsp;·&nbsp; peak ${s.maxG.toFixed(1)} g`;
-  else $('soloRes').innerHTML = `${s.car.why === 'crashed' ? 'Crashed' : 'Stalled'} on lap ${s.laps.length + 1} after ${fmtTime(s.car.time)}. It needs more training.`;
+  else $('soloRes').innerHTML = `${s.car.why === 'crashed' ? 'Crashed' : s.car.why === 'stalled' ? 'Stalled' : 'Blew its engine'} on lap ${s.laps.length + 1} after ${fmtTime(s.car.time)}. It needs more training.`;
 }
 
 function startSolo() {
