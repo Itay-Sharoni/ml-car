@@ -19,12 +19,26 @@ export const SCHEMA = [
     ],
   },
   {
-    title: 'Brain & senses', hint: 'What the car can perceive and how big its neural network is.',
+    title: "Driver's senses", hint: 'What the driver can see and feel. Every sense adds input neurons to the brain: more to work with, but also more for evolution to figure out.',
     items: [
-      { key: 'sensors', label: 'Sensors', min: 3, max: 15, step: 1, kind: 'reset', hint: 'Number of distance rays. Each one is an input neuron (plus speed, slide and spin).' },
+      { key: 'sensors', label: 'Eyes: distance rays', min: 3, max: 15, step: 1, kind: 'reset', hint: 'Number of rays measuring the distance to the road edge. Each one is an input neuron.' },
       { key: 'sensorRange', label: 'Sensor range', unit: 'm', min: 20, max: 250, step: 5, kind: 'live', hint: 'How far ahead the car can see. A fast car needs to see far to brake in time.' },
       { key: 'sensorFov', label: 'Field of view', unit: '°', min: 40, max: 300, step: 10, kind: 'live', hint: 'How wide the rays fan out around the nose.' },
       { key: 'sensorFocus', label: 'Forward focus', min: 1, max: 3, step: 0.1, kind: 'live', hint: '1 spreads rays evenly. Higher packs more of them toward straight ahead.' },
+      { key: 'senseMotion', label: 'Speed & balance', type: 'toggle', kind: 'reset', hint: 'Speedometer, sideways slide and how fast the car is rotating. 3 inputs.' },
+      { key: 'senseGain', label: 'Sense strength', pct: true, min: 0.05, max: 1, step: 0.05, kind: 'live', hint: 'How loudly the senses from G-forces down speak to the brain, compared with eyes and speed. Low keeps learning stable: evolution leans on them gradually. High lets them dominate, and mutations break more.' },
+      { key: 'senseG', label: 'G-forces', type: 'toggle', kind: 'reset', hint: 'The seat of the pants: pushed back under power, thrown forward under braking, sideways in corners, light over crests and heavy in dips. 3 inputs.' },
+      { key: 'senseEngine', label: 'Gear & revs', type: 'toggle', kind: 'reset', hint: 'Which gear the automatic gearbox is in, and the engine rpm. The engine pulls hardest near the top of the rev range. 2 inputs.' },
+      { key: 'senseHills', label: 'Depth: hills', type: 'toggle', kind: 'reset', hint: 'The slope under the car, and how much the road rises or falls over the next 40 m and 100 m. 3 inputs.' },
+      { key: 'senseBends', label: 'Depth: bends ahead', type: 'toggle', kind: 'reset', hint: 'Which way the road points 40 m and 100 m ahead of the nose: reading the corner before getting there. 2 inputs.' },
+      { key: 'senseLane', label: 'Place on the road', type: 'toggle', kind: 'reset', hint: 'How far left or right of the centre line, and the angle to the road. 2 inputs.' },
+      { key: 'senseTyres', label: 'Tyre feel', type: 'toggle', kind: 'reset', hint: 'Slip angle of the front and rear tyres: how close they are to letting go. 2 inputs.' },
+      { key: 'senseControls', label: 'Hands & feet', type: 'toggle', kind: 'reset', hint: 'Where the steering wheel and the pedal are right now. They take time to move. 2 inputs.' },
+    ],
+  },
+  {
+    title: 'Brain', hint: 'The neural network between the senses and the controls.',
+    items: [
       { key: 'hiddenLayers', label: 'Hidden layers', min: 0, max: 3, step: 1, kind: 'reset', hint: 'Layers between senses and controls. 0 = senses wired straight to the wheel.' },
       { key: 'hiddenSize', label: 'Neurons per layer', min: 2, max: 20, step: 1, kind: 'reset', hint: 'More neurons can learn subtler behaviour, but there is more to search.' },
       { type: 'buttons', buttons: [{ action: 'save', label: 'Save champion' }, { action: 'load', label: 'Load champion' }] },
@@ -66,15 +80,6 @@ export const SCHEMA = [
     ],
   },
 ];
-
-// Cosmetic gearbox for the dashboard and engine note: which gear and rpm for a given speed.
-const GEAR_TOP = [70, 110, 155, 200, 250, 340]; // km/h at the rev limit in each gear
-export function gearInfo(v) {
-  const kmh = v * 3.6;
-  let g = 0;
-  while (g < GEAR_TOP.length - 1 && kmh > GEAR_TOP[g] * 0.92) g++;
-  return { kmh, gear: g + 1, rpm: Math.max(900, Math.min(7800, (7500 * kmh) / GEAR_TOP[g])) };
-}
 
 // gap to par: negative (faster than par) is good
 export function fmtGap(d) {
@@ -141,7 +146,7 @@ export class UI {
           sync();
           this.inputs.push(sync);
         } else if (it.type === 'toggle') {
-          el.innerHTML = `<label class="toggle"><input type="checkbox">${it.label}</label><small>${it.hint}</small>`;
+          el.innerHTML = `<label class="toggle"><input type="checkbox">${it.label}${tag}</label><small>${it.hint}</small>`;
           const inp = el.querySelector('input');
           inp.checked = obj[it.key];
           inp.onchange = () => { obj[it.key] = inp.checked; this.onChange(it); };
@@ -198,7 +203,7 @@ export class UI {
   drawDash(car) {
     const { ctx, w, h } = fit($('dash'));
     if (!car) return;
-    const { kmh, gear, rpm } = gearInfo(car.v);
+    const kmh = car.v * 3.6, gear = car.gear, rpm = car.rpm;
     const acc = css('--acc'), mute = '#98a2b3', text = '#eef1f6';
     // rev bar
     const segs = 24, bw = (w - 16) / segs;
@@ -246,10 +251,53 @@ export class UI {
     ctx.fillText((Math.hypot(car.ax, car.ay) / 9.81).toFixed(1) + ' g', gx, 89);
   }
 
-  drawNet(brain) {
-    const { ctx, w, h } = fit($('net'));
+  // Everything the watched car senses right now, in human units: the inputs of its brain.
+  drawSenses(sim, car) {
+    const cv = $('senses'), S = sim.inputs;
+    if (!car || car.inp.length !== car.rays.length + S.length) return;
+    const ROW = 14, GAP = 5, RAYS = 34, n = car.rays.length;
+    let want = RAYS + 4;
+    S.forEach((s, j) => (want += ROW + (j && s.group !== S[j - 1].group ? GAP : 0)));
+    if (this.sensesH !== want) { cv.style.height = want + 'px'; this.sensesH = want; }
+    const { ctx, w } = fit(cv);
+    if (!w) return; // card is folded
+    const x0 = 72, x1 = w - 84, bw = x1 - x0, mid = x0 + bw / 2;
+    const pos = css('--acc'), neg = css('--acc2'), mute = '#98a2b3', text = '#eef1f6';
+    ctx.font = '10px ui-sans-serif, system-ui'; ctx.textBaseline = 'middle';
+    // eyes: one bar per ray, laid out left to right as the driver sees them
+    const range = sim.cfg.sensorRange, cw = bw / n;
+    let near = Infinity;
+    for (let k = 0; k < n; k++) {
+      const t = Math.min(1, car.rays[k] / range), bh = 3 + t * (RAYS - 9);
+      near = Math.min(near, car.rays[k]);
+      ctx.fillStyle = `hsl(${Math.round(t * 120)} 70% 55%)`;
+      ctx.fillRect(x0 + (n - 1 - k) * cw + 1, RAYS - 4 - bh, Math.max(1, cw - 2), bh);
+    }
+    ctx.fillStyle = mute; ctx.textAlign = 'right'; ctx.fillText('eyes', x0 - 8, RAYS / 2);
+    ctx.fillStyle = text; ctx.fillText(`edge ${Math.round(near)} m`, w - 2, RAYS / 2);
+    let y = RAYS + 4;
+    S.forEach((s, j) => {
+      if (j && s.group !== S[j - 1].group) y += GAP;
+      const v = Math.max(-1, Math.min(1, s.read(car, sim))), cy = y + ROW / 2;
+      ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fillRect(x0, cy - 3, bw, 6);
+      ctx.fillStyle = v > 0 ? pos : neg;
+      ctx.fillRect(mid, cy - 3, ((s.dir ? -v : v) * bw) / 2, 6);
+      ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.fillRect(mid - 0.5, cy - 5, 1, 10);
+      ctx.fillStyle = mute; ctx.textAlign = 'right'; ctx.fillText(s.label, x0 - 8, cy);
+      ctx.fillStyle = text; ctx.fillText(s.show(car, sim), w - 2, cy);
+      y += ROW;
+    });
+  }
+
+  drawNet(brain, inputs = []) {
+    const cv = $('net');
+    if (brain) { // many senses need a taller picture
+      const want = Math.max(200, Math.min(340, 16 + brain.sizes[0] * 11));
+      if (this.netH !== want) { cv.style.height = want + 'px'; this.netH = want; }
+    }
+    const { ctx, w, h } = fit(cv);
     if (!brain) return;
-    const sizes = brain.sizes, L = sizes.length, padL = 40, padR = 46;
+    const sizes = brain.sizes, L = sizes.length, padL = 58, padR = 46, nRays = sizes[0] - inputs.length;
     const X = (l) => padL + ((w - padL - padR) * l) / (L - 1);
     const Y = (l, i) => h / 2 + (i - (sizes[l] - 1) / 2) * Math.min(22, (h - 16) / sizes[l]);
     const pos = css('--acc'), neg = css('--acc2');
@@ -267,7 +315,7 @@ export class UI {
       }
     }
     ctx.globalAlpha = 1;
-    ctx.font = '10px ui-sans-serif, system-ui'; ctx.textBaseline = 'middle';
+    ctx.font = (sizes[0] > 16 ? 9 : 10) + 'px ui-sans-serif, system-ui'; ctx.textBaseline = 'middle';
     const r = Math.min(6, Math.max(3.5, (h - 16) / sizes[0] / 2 - 1));
     for (let l = 0; l < L; l++) {
       for (let i = 0; i < sizes[l]; i++) {
@@ -277,7 +325,7 @@ export class UI {
         ctx.globalAlpha = Math.min(1, Math.abs(a)); ctx.fillStyle = a > 0 ? pos : neg; ctx.fill();
         ctx.globalAlpha = 1; ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1; ctx.stroke();
         ctx.fillStyle = '#98a2b3';
-        if (l === 0) { const e = i - (sizes[0] - 3); ctx.textAlign = 'right'; ctx.fillText(e < 0 ? 'ray ' + (i + 1) : ['speed', 'slide', 'spin'][e], x - r - 4, y); }
+        if (l === 0) { ctx.textAlign = 'right'; ctx.fillText(i < nRays ? 'ray ' + (i + 1) : inputs[i - nRays]?.label ?? '', x - r - 4, y); }
         if (l === L - 1) {
           ctx.textAlign = 'left';
           const txt = i === 0 ? (a > 0.08 ? 'left' : a < -0.08 ? 'right' : 'straight') : a > 0 ? 'gas' : 'brake';

@@ -129,3 +129,11 @@ button.gold:hover { background: #ffd866; }
 body.solo-on #toasts { top: 250px; }
 
 .brand .logo small { font-size: 11px; font-weight: 600; color: var(--mute); letter-spacing: 0; margin-left: 4px; }
+
+/* foldable telemetry card */
+.fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; user-select: none; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::after { content: "+"; margin-left: auto; color: var(--mute); font-size: 16px; line-height: 1; }
+.fold[open] > summary::after { content: "–"; }
+.fold > summary h3 { margin: 0; }
+.fold[open] > summary { margin-bottom: 6px; }

@@ -1,7 +1,7 @@
-import { Sim, defaults, DT, brainSizes } from './sim.js';
+import { Sim, defaults, DT, brainSizes, SENSE_KEYS } from './sim.js';
 import { Brain } from './brain.js';
 import { World } from './world.js';
-import { UI, gearInfo, fmtTime, fmtGap } from './ui.js';
+import { UI, fmtTime, fmtGap } from './ui.js';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'mlcar.champion.v2';
@@ -43,15 +43,19 @@ function newTrack(seed) {
 
 function onAction(a) {
   if (a === 'save') {
-    const keep = ['sensors', 'sensorRange', 'sensorFov', 'sensorFocus', 'hiddenLayers', 'hiddenSize'];
+    const keep = ['sensors', 'sensorRange', 'sensorFov', 'sensorFocus', 'hiddenLayers', 'hiddenSize', ...SENSE_KEYS];
     localStorage.setItem(SAVE_KEY, JSON.stringify({ cfg: Object.fromEntries(keep.map((k) => [k, cfg[k]])), w: Array.from(sim.bestBrain().w) }));
     ui.toast('Champion brain saved in this browser');
   } else if (a === 'load') {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return ui.toast('No saved champion yet');
     const data = JSON.parse(raw);
+    // champions saved before the extra senses existed only had speed, slide and spin
+    const legacy = Object.fromEntries(SENSE_KEYS.map((k) => [k, k === 'senseMotion']));
+    const next = { ...cfg, ...legacy, ...data.cfg };
+    if (data.w.length !== Brain.count(brainSizes(next))) return ui.toast('The saved champion does not fit this version');
     exitSolo();
-    Object.assign(cfg, data.cfg);
+    Object.assign(cfg, next);
     sim.reset(new Brain(brainSizes(cfg), Float32Array.from(data.w)));
     ui.refresh(); ui.drawChart(sim.history);
     ui.toast('Champion loaded — population seeded from it');
@@ -179,7 +183,7 @@ function setSound(on) {
 function updateSound(car) {
   if (!audio || !view.sound) return;
   const t = audio.ctx.currentTime, live = car && car.alive && !state.paused;
-  const f = 40 + (gearInfo(car ? car.v : 0).rpm / 7800) * 170;
+  const f = 40 + ((car ? car.rpm : 900) / 7800) * 170;
   audio.o1.frequency.setTargetAtTime(f, t, 0.04);
   audio.o2.frequency.setTargetAtTime(f / 2, t, 0.04);
   audio.lp.frequency.setTargetAtTime(500 + f * 5, t, 0.05);
@@ -233,7 +237,8 @@ function loop(now) {
   ui.hud(sim, watched, sim.human ? 'drive' : sim.solo ? 'solo' : 'train');
   ui.drawDash(watched);
   updateSound(watched);
-  if (frame % 2 === 0) ui.drawNet(f && f.brain);
+  if (frame % 2 === 0) ui.drawNet(f && f.brain, sim.inputs);
+  if (frame % 2 === 1) ui.drawSenses(sim, watched);
   if (frame % 3 === 0) ui.drawMap(sim, cars, f);
   frame++;
   requestAnimationFrame(loop);

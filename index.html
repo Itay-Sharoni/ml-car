@@ -13,7 +13,7 @@
   <!-- left: every tunable -->
   <aside class="panel left" id="left">
     <header class="brand">
-      <div class="logo">ML<span>·</span>CAR <small>v1.3</small></div>
+      <div class="logo">ML<span>·</span>CAR <small>v1.4</small></div>
       <p>Cars with tiny neural-network brains learn to drive by evolution. Tune anything, any time.</p>
     </header>
     <div id="controls"></div>
@@ -41,6 +41,12 @@
       <h3 id="dashTitle">Leader's dashboard</h3>
       <canvas id="dash" class="viz" style="height:94px"></canvas>
     </section>
+
+    <details class="card fold" open>
+      <summary><h3>What the driver feels <small>live brain inputs</small></h3></summary>
+      <canvas id="senses" class="viz" style="height:120px"></canvas>
+      <p class="hint">Bars lean left or right for left/right senses. Switch senses on and off under Driver's senses.</p>
+    </details>
 
     <section class="card">
       <h3>Brain <small>live</small></h3>
@@ -106,7 +112,7 @@
       <h1>Watch cars teach themselves to drive</h1>
       <p class="lead">Nobody programs the driving. Each sports car has a small neural network for a brain, and evolution finds the weights. The physics are real: tyre grip, weight transfer, engine power, hills and gravity. The goal: finish <b>3 laps</b> without leaving the road.</p>
       <ol class="steps">
-        <li><b>Sense</b><span>Each car shoots distance rays at the road edges. Those distances, plus its speed, slide and spin, are all it knows.</span></li>
+        <li><b>Sense</b><span>Each car shoots distance rays at the road edges, and feels what a driver feels: speed, g-forces, gear and revs, the hills and bends ahead.</span></li>
         <li><b>Think</b><span>The numbers flow through the neural network and come out as two decisions: steering wheel and gas/brake pedal.</span></li>
         <li><b>Try</b><span>A whole population drives at once, each with a slightly different brain. Generation 1 is pure random chaos.</span></li>
         <li><b>Score</b><span>It is a time attack. Distance earns points, pace multiplies them, and the quickest finisher wins. Dawdle and you are eliminated.</span></li>
@@ -115,7 +121,8 @@
       <h2>Experiments to try</h2>
       <ul class="tries">
         <li>Set <b>Hidden layers</b> to 0. Can a brain with no hidden neurons still drive?</li>
-        <li>Give the cars only <b>3 sensors</b>, or a narrow field of view.</li>
+        <li>Give the cars only <b>3 distance rays</b>, or a narrow field of view.</li>
+        <li>Open <b>Driver's senses</b> and switch senses off or on. Can it still race without g-forces, or without reading the bends ahead?</li>
         <li>Crank <b>Mutation strength</b> to the max and watch learning fall apart. Then set it near zero.</li>
         <li>Turn <b>Tyre grip</b> down to 0.4 (ice), or <b>Engine power</b> up to 1000 hp, and see if they adapt.</li>
         <li>Set <b>Gravity</b> to the Moon's 1.6 and watch the cars float through corners.</li>
